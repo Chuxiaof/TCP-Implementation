@@ -99,6 +99,48 @@
 #include <string.h>
 #include <time.h>
 
+/**
+ * @brief a helper function that handle the arrival of new packet
+ */
+// static void chitcpd_tcp_handle_packet(serverinfo_t * si, chisocketentry_t * entry);
+static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
+{
+    tcp_packet_t *packet = NULL;
+    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    if (tcp_data->pending_packets)
+    {
+        pthread_mutex_lock(&tcp_data->lock_pending_packets);
+        packet = tcp_data->pending_packets->packet;
+        chitcp_packet_list_pop_head(&tcp_data->pending_packets);
+        pthread_mutex_unlock(&tcp_data->lock_pending_packets);
+    }
+    tcphdr_t *header = TCP_PACKET_HEADER(packet);
+
+    tcp_packet_t * return_packet = malloc(sizeof(tcp_packet_t));
+    chitcpd_tcp_packet_create(entry, return_packet, NULL, 0);
+    tcphdr_t *return_header = TCP_PACKET_HEADER(return_packet);
+
+    if (entry->tcp_state == LISTEN)
+    {
+        if (header->ack)
+        {
+            chilog(WARNING, "unexpected ack in LISTEN state");
+            return;
+        }
+        if (header->syn)
+        {
+            tcp_data->RCV_NXT = ntohl(header->seq) + 1;
+            tcp_data->IRS = ntohl(header->seq);
+            srand(time(NULL));
+            tcp_seq isn = (rand() % 1000 + 1) * 100000; // set the initial sequence number randomly
+            return_header->syn = 1;                            // this is a SYN packet
+            return_header->ack = 1;
+            return_header->seq = htonl(isn);
+            return_header->ack_seq=htonl(tcp_data->RCV_NXT);
+        }
+    }
+}
+
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -136,15 +178,17 @@ int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, t
         tcphdr_t *header = TCP_PACKET_HEADER(packet);
 
         srand(time(NULL));
-        tcp_seq iss = (rand() % 1000 + 1) * 100000; // set the initial sequence number randomly
-        
+        tcp_seq isn = (rand() % 1000 + 1) * 100000; // set the initial sequence number randomly
         header->syn = 1;                            // this is a SYN packet
-        header->seq = iss;
-        tcp_data->SND_UNA=iss;
-        tcp_data->SND_NXT=iss+1;
+        header->seq = htonl(isn);
+        tcp_data->SND_UNA = isn;
+        tcp_data->SND_NXT = isn + 1;
 
         // send package and update state
         chitcpd_send_tcp_packet(si, entry, packet);
+        // free package
+        chitcp_tcp_packet_free(packet);
+        // update state
         chitcpd_update_tcp_state(si, entry, SYN_SENT);
     }
     else if (event == CLEANUP)
@@ -162,6 +206,7 @@ int chitcpd_tcp_state_handle_LISTEN(serverinfo_t *si, chisocketentry_t *entry, t
     if (event == PACKET_ARRIVAL)
     {
         /* Your code goes here */
+        chitcpd_tcp_handle_packet(si, entry);
     }
     else
         chilog(WARNING, "In LISTEN state, received unexpected event.");
@@ -174,6 +219,7 @@ int chitcpd_tcp_state_handle_SYN_RCVD(serverinfo_t *si, chisocketentry_t *entry,
     if (event == PACKET_ARRIVAL)
     {
         /* Your code goes here */
+        chitcpd_tcp_handle_packet(si, entry);
     }
     else if (event == TIMEOUT_RTX)
     {
@@ -190,6 +236,7 @@ int chitcpd_tcp_state_handle_SYN_SENT(serverinfo_t *si, chisocketentry_t *entry,
     if (event == PACKET_ARRIVAL)
     {
         /* Your code goes here */
+        chitcpd_tcp_handle_packet(si, entry);
     }
     else if (event == TIMEOUT_RTX)
     {
