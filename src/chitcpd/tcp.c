@@ -137,7 +137,7 @@ int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, t
     if (event == APPLICATION_CONNECT)
     {
         tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-
+        
         /*prepare and send SYN message*/
         tcp_packet_t *packet = malloc(sizeof(tcp_packet_t));
         chitcpd_tcp_packet_create(entry, packet, NULL, 0);
@@ -149,7 +149,8 @@ int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, t
         header->seq = htonl(tcp_data->ISS);
         tcp_data->SND_UNA = tcp_data->ISS;
         tcp_data->SND_NXT = tcp_data->ISS + 1;
-
+        // set send buffer for client side
+        assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
         // send package and update state
         chitcpd_send_tcp_packet(si, entry, packet);
         // free package
@@ -216,26 +217,24 @@ int chitcpd_tcp_state_handle_SYN_SENT(serverinfo_t *si, chisocketentry_t *entry,
 }
 
 int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *entry, tcp_event_type_t event)
-{   
+{
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     if (event == APPLICATION_SEND)
     {
         // extract the data out of send buffer and store in des[]
-        uint32_t cnt=circular_buffer_count(&tcp_data->send);
+        uint32_t cnt = circular_buffer_count(&tcp_data->send);
         uint8_t dst[cnt];
         uint16_t read_bytes = circular_buffer_read(&tcp_data->send, dst, cnt, false);
         // construct packet
         tcp_packet_t *packet = malloc(sizeof(tcp_packet_t));
-        int packet_bytes = chitcp_tcp_packet_create(packet, dst, read_bytes);
-        tcphdr_t *header = TCP_PACKET_HEADER(packet);  
-        header->ack=1;
-        header->ack_seq=htonl(tcp_data->RCV_NXT);
-        header->seq=htonl(tcp_data->SND_NXT);
-        header->win=htons(tcp_data->RCV_WND);
-        // chilog(ERROR, "send call for establish: SND_NXT: %i, RCV_WND: %i.", tcp_data->SND_NXT, tcp_data->RCV_WND);
-        // chilog(ERROR, "send call for establish: SND_NXT: %i, RCV_WND: %i.", header->seq,header->win);
+        int packet_bytes = chitcpd_tcp_packet_create(entry, packet, dst, read_bytes);
+        tcphdr_t *header = TCP_PACKET_HEADER(packet);
+        header->ack = 1;
+        header->ack_seq = htonl(tcp_data->RCV_NXT);
+        header->seq = htonl(tcp_data->SND_NXT);
+        header->win = htons(tcp_data->RCV_WND);
         chitcpd_send_tcp_packet(si, entry, packet);
-        tcp_data->SND_NXT=tcp_data->SND_NXT+packet_bytes;
+        tcp_data->SND_NXT = tcp_data->SND_NXT + packet_bytes;
         deep_free_packet(packet);
         return CHITCP_OK;
     }
@@ -243,7 +242,7 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
     {
         chitcpd_tcp_handle_packet(si, entry);
     }
-    else if (event == APPLICATION_RECEIVE) 
+    else if (event == APPLICATION_RECEIVE)
     {
         /* Your code goes here */
     }
@@ -428,11 +427,9 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             if (SEG_ACK(packet) >= tcp_data->SND_UNA && SEG_ACK(packet) <= tcp_data->SND_NXT)
             {
                 tcp_data->SND_UNA = SEG_ACK(packet);
-                tcp_data->RCV_WND=circular_buffer_available(&tcp_data->recv);
+                //tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
+                tcp_data->SND_WND = SEG_WND(packet);
                 chitcpd_update_tcp_state(si, entry, ESTABLISHED);
-                // set buffer
-                assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
-                assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
             }
             else
             {
@@ -451,7 +448,14 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             }
             break;
         case ESTABLISHED:
-            if (tcp_data->SND_UNA < SEG_ACK(packet) && SEG_ACK(packet) <= tcp_data->SND_NXT)
+            chilog(WARNING, "SND_UNA:%i, SEG_ACK(packet): %i, SND_NXT:%i", tcp_data->SND_UNA, SEG_ACK(packet), tcp_data->SND_NXT);
+            if (tcp_data->SND_UNA > SEG_ACK(packet))
+            {
+                deep_free_packet(return_packet);
+                deep_free_packet(packet);
+                return;
+            }
+            if (tcp_data->SND_UNA <= SEG_ACK(packet) && SEG_ACK(packet) <= tcp_data->SND_NXT)
             {
                 tcp_data->SND_UNA = SEG_ACK(packet);
                 tcp_data->SND_WND = SEG_WND(packet); // update the send window
@@ -464,20 +468,15 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
                 // construct return packet
                 return_header->ack = 1;
-                return_header->ack_seq =htonl(tcp_data->RCV_NXT);
-                return_header->seq =htonl(tcp_data->SND_NXT);
+                return_header->ack_seq = htonl(tcp_data->RCV_NXT);
+                return_header->seq = htonl(tcp_data->SND_NXT);
                 chitcpd_send_tcp_packet(si, entry, return_packet);
                 deep_free_packet(return_packet);
                 deep_free_packet(packet);
                 return;
             }
-            else if (tcp_data->SND_UNA > SEG_ACK(packet))
-            { // if the ACK is a duplicate, drop and ignore
-                deep_free_packet(return_packet);
-                deep_free_packet(packet);
-                return;
-            }
-            break;
+            // TODO deal with segment out of order: SEG_ACK(packet) > tcp_data->SND_NXT
+
         default:
             chilog(ERROR, "In %i state, ACK packet arrives.", entry->tcp_state);
             deep_free_packet(return_packet);
@@ -492,6 +491,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         tcp_data->IRS = SEG_SEQ(packet);
         return_header->ack = 1;
         return_header->ack_seq = htonl(tcp_data->RCV_NXT);
+
         switch (entry->tcp_state)
         {
         case LISTEN:
@@ -502,8 +502,17 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             tcp_data->SND_NXT = tcp_data->ISS + 1;
             tcp_data->SND_UNA = tcp_data->ISS;
             chitcpd_update_tcp_state(si, entry, SYN_RCVD);
+            // set send and recv buffer for server side
+            assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
+            assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
+            tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
+            chilog(WARNING, "buffer size: %i", tcp_data->RCV_WND);
+            return_header->win = htonl(tcp_data->RCV_WND);
             break;
         case SYN_SENT:
+            // set receive buffer for client side
+            assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
+            tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
             if (header->ack)
             {
                 tcp_data->SND_UNA = SEG_ACK(packet);
@@ -511,11 +520,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             if (tcp_data->SND_UNA > tcp_data->ISS)
             {
                 return_header->seq = htonl(tcp_data->SND_NXT);
-                tcp_data->RCV_WND=circular_buffer_available(&tcp_data->recv);
                 chitcpd_update_tcp_state(si, entry, ESTABLISHED);
-                // set buffer
-                assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
-                assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
             }
             else
             {
@@ -523,8 +528,11 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 return_header->seq = htonl(tcp_data->ISS);
                 chitcpd_update_tcp_state(si, entry, SYN_RCVD);
             }
+            tcp_data->SND_WND = SEG_WND(packet);
+            return_header->win = htonl(tcp_data->RCV_WND);
             break;
         }
+        chilog(WARNING, "buffer size: %i", tcp_data->RCV_WND);
         // send the responding packet
         chitcpd_send_tcp_packet(si, entry, return_packet);
         deep_free_packet(return_packet);
