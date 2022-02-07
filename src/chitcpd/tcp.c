@@ -259,22 +259,6 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
     {
         send_data(si, entry);
         return CHITCP_OK;
-        // // extract the data out of send buffer and store in des[]
-        // uint32_t cnt = circular_buffer_count(&tcp_data->send);
-        // uint8_t dst[cnt];
-        // uint16_t read_bytes = circular_buffer_read(&tcp_data->send, dst, cnt, false);
-        // // construct packet
-        // tcp_packet_t *packet = malloc(sizeof(tcp_packet_t));
-        // int packet_bytes = chitcpd_tcp_packet_create(entry, packet, dst, read_bytes);
-        // tcphdr_t *header = TCP_PACKET_HEADER(packet);
-        // header->ack = 1;
-        // header->ack_seq = htonl(tcp_data->RCV_NXT);
-        // header->seq = htonl(tcp_data->SND_NXT);
-        // header->win = htons(tcp_data->RCV_WND);
-        // chitcpd_send_tcp_packet(si, entry, packet);
-        // tcp_data->SND_NXT = tcp_data->SND_NXT + packet_bytes;
-        // deep_free_packet(packet);
-        // return CHITCP_OK;
     }
     else if (event == PACKET_ARRIVAL)
     {
@@ -282,7 +266,7 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
     }
     else if (event == APPLICATION_RECEIVE)
     {
-        /* Your code goes here */
+        tcp_data->RCV_WND = circular_buffer_count(&tcp_data->recv);
     }
     else if (event == APPLICATION_CLOSE)
     {
