@@ -246,6 +246,27 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry) {
     return CHITCP_OK;
 }
 
+void send_fin(serverinfo_t *si, chisocketentry_t *entry) {
+    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    if (tcp_data->closing && circular_buffer_count(&tcp_data->send) == 0 &&
+            tcp_data->SND_NXT == tcp_data->SND_UNA) {
+        tcp_packet_t *fin_packet = calloc(1, sizeof(tcp_packet_t));
+        chitcpd_tcp_packet_create(entry, fin_packet, NULL, 0);
+        tcphdr_t *fin_header = TCP_PACKET_HEADER(fin_packet);
+        fin_header->fin = 1;
+        fin_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+        tcp_data->SND_NXT += 1;
+        chitcpd_send_tcp_packet(si, entry, fin_packet);
+        deep_free_packet(fin_packet);
+
+        tcp_state_t old_state = entry->tcp_state;
+        tcp_state_t new_state = old_state == ESTABLISHED ? FIN_WAIT_1 : LAST_ACK;
+        chitcpd_update_tcp_state(si, entry, new_state);
+
+        tcp_data->closing = false;
+    }
+}
+
 int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *entry, tcp_event_type_t event)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -264,6 +285,7 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
     else if (event == APPLICATION_CLOSE)
     {
         tcp_data->closing = true;
+        send_fin(si, entry);
     }
     else if (event == TIMEOUT_RTX)
     {
@@ -331,6 +353,7 @@ int chitcpd_tcp_state_handle_CLOSE_WAIT(serverinfo_t *si, chisocketentry_t *entr
     if (event == APPLICATION_CLOSE)
     {
         tcp_data->closing = true;
+        send_fin(si, entry);
     }
     else if (event == PACKET_ARRIVAL)
     {
@@ -572,17 +595,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 deep_free_packet(packet);
 
                 send_data(si, entry);
-
-                if (tcp_data->closing && circular_buffer_count(&tcp_data->send) == 0 &&
-                    tcp_data->SND_NXT == tcp_data->SND_UNA) {
-                    tcp_packet_t *fin_packet = calloc(1, sizeof(tcp_packet_t));
-                    chitcpd_tcp_packet_create(entry, fin_packet, NULL, 0);
-                    tcphdr_t *fin_header = TCP_PACKET_HEADER(return_packet);
-                    fin_header->fin = 1;
-                    fin_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-                    chitcpd_send_tcp_packet(si, entry, fin_packet);
-                    deep_free_packet(fin_packet);
-                }
+                send_fin(si, entry);
 
                 return;
             }
