@@ -216,7 +216,8 @@ int chitcpd_tcp_state_handle_SYN_SENT(serverinfo_t *si, chisocketentry_t *entry,
 int send_data(serverinfo_t *si, chisocketentry_t *entry) {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     uint32_t cnt_to_send = circular_buffer_count(&tcp_data->send);
-    while (cnt_to_send > 0 && tcp_data->SND_WND > 0) {
+    uint16_t temp_wnd = tcp_data->SND_WND-(tcp_data->SND_NXT-tcp_data->SND_UNA);
+    while (cnt_to_send > 0 && temp_wnd > 0) {
         // extract data from send buffer
         uint16_t size = MIN(cnt_to_send, TCP_MSS);
         uint8_t dst[size];
@@ -240,7 +241,7 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry) {
         deep_free_packet(packet);
 
         tcp_data->SND_NXT += read_bytes;
-        tcp_data->SND_WND -= read_bytes;
+        temp_wnd -= read_bytes;
         cnt_to_send = circular_buffer_count(&tcp_data->send);
     }
     return CHITCP_OK;
@@ -425,7 +426,9 @@ int chitcpd_tcp_state_handle_LAST_ACK(serverinfo_t *si, chisocketentry_t *entry,
 /*                                                           */
 static void deep_free_packet(tcp_packet_t *packet)
 {
-    chitcp_tcp_packet_free(packet);
+    if (packet != NULL) {
+        chitcp_tcp_packet_free(packet);
+    }
     free(packet);
 }
 
@@ -458,7 +461,99 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             deep_free_packet(packet);
             return;
         }
+    }
 
+    if (header->ack)
+    {
+        switch (entry->tcp_state)
+        {
+        case SYN_RCVD:
+            if (SEG_ACK(packet) >= tcp_data->SND_UNA && SEG_ACK(packet) <= tcp_data->SND_NXT)
+            {
+                tcp_data->SND_UNA = SEG_ACK(packet);
+                tcp_data->SND_WND = SEG_WND(packet);
+                chitcpd_update_tcp_state(si, entry, ESTABLISHED);
+            }
+            else
+            {
+                chilog(WARNING, "In SYN_RCVD state, the segment acknowledgement is unacceptable.");
+            }
+            deep_free_packet(return_packet);
+            deep_free_packet(packet);
+            return;
+        case SYN_SENT:
+            if (SEG_ACK(packet) <= tcp_data->ISS || SEG_ACK(packet) > tcp_data->SND_NXT)
+            {
+                chilog(WARNING, "In SYN_SENT state, package has invalid ACK.");
+                deep_free_packet(return_packet);
+                deep_free_packet(packet);
+                return;
+            }
+            break;
+        case ESTABLISHED:
+            if (tcp_data->SND_UNA > SEG_ACK(packet))
+            {
+                // ignore 
+                deep_free_packet(return_packet);
+                deep_free_packet(packet);
+                return;
+            }
+            if (tcp_data->SND_UNA <= SEG_ACK(packet) && SEG_ACK(packet) <= tcp_data->SND_NXT)
+            {
+                tcp_data->SND_UNA = SEG_ACK(packet);
+                tcp_data->SND_WND = SEG_WND(packet); // update the send window
+                // write packet payload into recv buffer(disable blocking)
+                uint8_t *payload_start = TCP_PAYLOAD_START(packet);
+                uint32_t len = TCP_PAYLOAD_LEN(packet);
+                len = MIN(len, circular_buffer_available(&tcp_data->recv));
+                uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
+                // TODO 2b
+                tcp_data->RCV_NXT += bytes;
+                tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
+                // construct return packet
+                return_header->ack = 1;
+                return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+                return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+                return_header->win = chitcp_htons(tcp_data->RCV_WND);
+                chitcpd_send_tcp_packet(si, entry, return_packet);
+
+                send_data(si, entry);
+                send_fin(si, entry);
+            }
+            break;
+            // TODO 2b deal with segment out of order: SEG_ACK(packet) > tcp_data->SND_NXT
+        case FIN_WAIT_1:
+            if (tcp_data->SND_UNA <= SEG_ACK(packet)) {
+                tcp_data->SND_UNA = SEG_ACK(packet);
+                chitcpd_update_tcp_state(si, entry, FIN_WAIT_2);
+            }
+            deep_free_packet(return_packet);
+            deep_free_packet(packet);
+            return;
+        case LAST_ACK:
+            if (tcp_data->SND_UNA <= SEG_ACK(packet)) {
+                chitcpd_update_tcp_state(si, entry, CLOSED);
+            }
+            deep_free_packet(return_packet);
+            deep_free_packet(packet);
+            return;
+        case CLOSING:
+            if (tcp_data->SND_UNA <= SEG_ACK(packet)) {
+                chitcpd_update_tcp_state(si, entry, TIME_WAIT);
+                chitcpd_update_tcp_state(si, entry, CLOSED);
+            }
+            deep_free_packet(return_packet);
+            deep_free_packet(packet);
+            return;
+        default:
+            chilog(ERROR, "In %i state, ACK packet arrives.", entry->tcp_state);
+            deep_free_packet(return_packet);
+            deep_free_packet(packet);
+            return;
+        }
+    }
+
+    if (header->syn) {
         tcp_data->RCV_NXT = SEG_SEQ(packet) + 1;
         tcp_data->IRS = SEG_SEQ(packet);
         return_header->ack = 1;
@@ -486,7 +581,6 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             if (header->ack) {
                 tcp_data->SND_UNA = SEG_ACK(packet);
             }
-            // TODO why not +1
             if (tcp_data->SND_UNA > tcp_data->ISS)
             {
                 return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
@@ -510,6 +604,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 
     if (header->fin) {
         tcp_state_t state = entry->tcp_state;
+
         if (state != ESTABLISHED && state != FIN_WAIT_1 && state != FIN_WAIT_2) {
             chilog(ERROR, "In %i state, unexpected FIN packet arrives.", entry->tcp_state);
             deep_free_packet(return_packet);
@@ -517,15 +612,10 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             return;
         }
 
-        tcp_data->RCV_NXT = SEG_SEQ(packet) + 1;
-        return_header->ack = 1;
-        return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-
         tcp_state_t new_state = state == ESTABLISHED ? CLOSE_WAIT : 
                                 state == FIN_WAIT_1 ? CLOSING : TIME_WAIT;
         chitcpd_update_tcp_state(si, entry, new_state);
 
-        chitcpd_send_tcp_packet(si, entry, return_packet);
         deep_free_packet(return_packet);
         deep_free_packet(packet);
 
@@ -534,106 +624,6 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         }
 
         return;
-    }
-
-    if (header->ack)
-    {
-        switch (entry->tcp_state)
-        {
-        case SYN_RCVD:
-            if (SEG_ACK(packet) >= tcp_data->SND_UNA && SEG_ACK(packet) <= tcp_data->SND_NXT)
-            {
-                tcp_data->SND_UNA = SEG_ACK(packet);
-                //tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-                tcp_data->SND_WND = SEG_WND(packet);
-                chitcpd_update_tcp_state(si, entry, ESTABLISHED);
-            }
-            else
-            {
-                chilog(WARNING, "In SYN_RCVD state, the segment acknowledgement is unacceptable.");
-            }
-            deep_free_packet(return_packet);
-            deep_free_packet(packet);
-            return;
-        case SYN_SENT:
-            if (SEG_ACK(packet) <= tcp_data->ISS || SEG_ACK(packet) > tcp_data->SND_NXT)
-            {
-                chilog(WARNING, "In SYN_SENT state, package has invalid ACK.");
-                deep_free_packet(return_packet);
-                deep_free_packet(packet);
-                return;
-            }
-            break;
-        case ESTABLISHED:
-            chilog(INFO, "SND_UNA:%i, SEG_ACK(packet): %i, SND_NXT:%i", tcp_data->SND_UNA, SEG_ACK(packet), tcp_data->SND_NXT);
-            if (tcp_data->SND_UNA > SEG_ACK(packet))
-            {
-                // TODO chilog
-                deep_free_packet(return_packet);
-                deep_free_packet(packet);
-                return;
-            }
-            if (tcp_data->SND_UNA <= SEG_ACK(packet) && SEG_ACK(packet) <= tcp_data->SND_NXT)
-            {
-                tcp_data->SND_UNA = SEG_ACK(packet);
-                tcp_data->SND_WND = SEG_WND(packet); // update the send window
-                // write packet payload into recv buffer(disable blocking)
-                uint8_t *payload_start = TCP_PAYLOAD_START(packet);
-                uint32_t len = TCP_PAYLOAD_LEN(packet);
-                len = MIN(len, circular_buffer_available(&tcp_data->recv));
-                uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
-                // TODO 2b
-                tcp_data->RCV_NXT += bytes;
-                tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-                // construct return packet
-                return_header->ack = 1;
-                return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-                return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-                return_header->win = chitcp_htons(tcp_data->RCV_WND);
-                chitcpd_send_tcp_packet(si, entry, return_packet);
-                deep_free_packet(return_packet);
-                deep_free_packet(packet);
-
-                send_data(si, entry);
-                send_fin(si, entry);
-
-                return;
-            }
-            // TODO deal with segment out of order: SEG_ACK(packet) > tcp_data->SND_NXT
-        case FIN_WAIT_1:
-            if (tcp_data->SND_UNA == SEG_ACK(packet) - 1) {
-                chitcpd_update_tcp_state(si, entry, FIN_WAIT_2);
-            } else {
-                chilog(ERROR, "unexpected ACK");
-            }
-            deep_free_packet(return_packet);
-            deep_free_packet(packet);
-            return;
-        case LAST_ACK:
-            if (tcp_data->SND_UNA == SEG_ACK(packet) - 1) {
-                chitcpd_update_tcp_state(si, entry, CLOSED);
-            } else {
-                chilog(ERROR, "unexpected ACK");
-            }
-            deep_free_packet(return_packet);
-            deep_free_packet(packet);
-            return;
-        case CLOSING:
-            if (tcp_data->SND_UNA == SEG_ACK(packet) - 1) {
-                chitcpd_update_tcp_state(si, entry, TIME_WAIT);
-                chitcpd_update_tcp_state(si, entry, CLOSED);
-            } else {
-                chilog(ERROR, "unexpected ACK");
-            }
-            deep_free_packet(return_packet);
-            deep_free_packet(packet);
-            return;
-        default:
-            chilog(ERROR, "In %i state, ACK packet arrives.", entry->tcp_state);
-            deep_free_packet(return_packet);
-            deep_free_packet(packet);
-            return;
-        }
     }
 
 }
