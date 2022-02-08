@@ -256,7 +256,7 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry) {
         tcphdr_t *fin_header = TCP_PACKET_HEADER(fin_packet);
         fin_header->fin = 1;
         fin_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-        tcp_data->SND_NXT += 1;
+        fin_header->win = chitcp_htons(tcp_data->RCV_WND);
         chitcpd_send_tcp_packet(si, entry, fin_packet);
         deep_free_packet(fin_packet);
 
@@ -516,11 +516,14 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
                 return_header->win = chitcp_htons(tcp_data->RCV_WND);
                 chitcpd_send_tcp_packet(si, entry, return_packet);
+                deep_free_packet(return_packet);
+                deep_free_packet(packet);
 
                 send_data(si, entry);
                 send_fin(si, entry);
+
+                return;
             }
-            break;
             // TODO 2b deal with segment out of order: SEG_ACK(packet) > tcp_data->SND_NXT
         case FIN_WAIT_1:
             if (tcp_data->SND_UNA <= SEG_ACK(packet)) {
@@ -604,7 +607,6 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 
     if (header->fin) {
         tcp_state_t state = entry->tcp_state;
-
         if (state != ESTABLISHED && state != FIN_WAIT_1 && state != FIN_WAIT_2) {
             chilog(ERROR, "In %i state, unexpected FIN packet arrives.", entry->tcp_state);
             deep_free_packet(return_packet);
@@ -612,10 +614,15 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             return;
         }
 
+        tcp_data->RCV_NXT = SEG_SEQ(packet) + 1;
+        return_header->ack = 1;
+        return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+
         tcp_state_t new_state = state == ESTABLISHED ? CLOSE_WAIT : 
                                 state == FIN_WAIT_1 ? CLOSING : TIME_WAIT;
         chitcpd_update_tcp_state(si, entry, new_state);
 
+        chitcpd_send_tcp_packet(si, entry, return_packet);
         deep_free_packet(return_packet);
         deep_free_packet(packet);
 
