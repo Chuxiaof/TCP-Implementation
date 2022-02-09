@@ -602,20 +602,19 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         tcp_data->RCV_NXT = SEG_SEQ(packet) + 1;
         return_header->ack = 1;
         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+        return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+        chitcpd_send_tcp_packet(si, entry, return_packet);
 
         tcp_state_t new_state = state == ESTABLISHED ? CLOSE_WAIT : 
                                 state == FIN_WAIT_1 ? CLOSING : TIME_WAIT;
         chitcpd_update_tcp_state(si, entry, new_state);
-
-        chitcpd_send_tcp_packet(si, entry, return_packet);
-        deep_free_packet(return_packet);
-        deep_free_packet(packet);
-
         if (new_state == TIME_WAIT)
         {
             chitcpd_update_tcp_state(si, entry, CLOSED);
         }
 
+        deep_free_packet(return_packet);
+        deep_free_packet(packet);
         return;
     }
 }
