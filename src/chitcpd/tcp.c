@@ -99,11 +99,36 @@
 #include <string.h>
 #include <time.h>
 
-/* free both the raw content and tcp_packet_t itself */
+/**
+ * @brief free both the raw content and tcp_packet_t itself
+ * 
+ * @param pointer to packet you want to free
+ */
 static void deep_free_packet(tcp_packet_t *packet);
 
 /**
+ * @brief segment long message, keep sending until send buffer is empty 
+ *        or exhausting SND.WND
+ * 
+ * @param si 
+ * @param entry 
+ * @return int, denoting success or not
+ */
+int send_data(serverinfo_t *si, chisocketentry_t *entry);
+
+/**
+ * @brief for delayed sending of fin message
+ * 
+ * @param si 
+ * @param entry 
+ */
+void send_fin(serverinfo_t *si, chisocketentry_t *entry);
+
+/**
  * @brief a helper function that handle the arrival of new packet
+ * 
+ * @param si 
+ * @param entry 
  */
 static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry);
 
@@ -211,67 +236,6 @@ int chitcpd_tcp_state_handle_SYN_SENT(serverinfo_t *si, chisocketentry_t *entry,
         chilog(WARNING, "In SYN_SENT state, received unexpected event.");
 
     return CHITCP_OK;
-}
-
-int send_data(serverinfo_t *si, chisocketentry_t *entry)
-{
-    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-    uint32_t cnt_to_send = circular_buffer_count(&tcp_data->send);
-    uint16_t temp_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
-    while (cnt_to_send > 0 && temp_wnd > 0)
-    {
-        // extract data from send buffer
-        uint16_t size = MIN(cnt_to_send, TCP_MSS);
-        size = MIN(size, temp_wnd);
-        uint8_t dst[size];
-        uint16_t read_bytes = circular_buffer_read(&tcp_data->send, dst, size, false);
-        if (read_bytes < 0)
-        {
-            chilog(CRITICAL, "fail to read bytes from send buffer");
-            return -1;
-        }
-
-        // construct packet
-        tcp_packet_t *packet = calloc(1, sizeof(tcp_packet_t));
-        uint32_t packet_bytes = chitcpd_tcp_packet_create(entry, packet, dst, read_bytes);
-        tcphdr_t *header = TCP_PACKET_HEADER(packet);
-        header->ack = 1;
-        header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-        header->seq = chitcp_htonl(tcp_data->SND_NXT);
-        header->win = chitcp_htons(tcp_data->RCV_WND);
-
-        // send packet
-        chitcpd_send_tcp_packet(si, entry, packet);
-        deep_free_packet(packet);
-
-        tcp_data->SND_NXT += read_bytes;
-        temp_wnd -= read_bytes;
-        cnt_to_send = circular_buffer_count(&tcp_data->send);
-    }
-    return CHITCP_OK;
-}
-
-void send_fin(serverinfo_t *si, chisocketentry_t *entry)
-{
-    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-    if (tcp_data->closing && circular_buffer_count(&tcp_data->send) == 0 &&
-        tcp_data->SND_NXT == tcp_data->SND_UNA)
-    {
-        tcp_packet_t *fin_packet = calloc(1, sizeof(tcp_packet_t));
-        chitcpd_tcp_packet_create(entry, fin_packet, NULL, 0);
-        tcphdr_t *fin_header = TCP_PACKET_HEADER(fin_packet);
-        fin_header->fin = 1;
-        fin_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-        fin_header->win = chitcp_htons(tcp_data->RCV_WND);
-        chitcpd_send_tcp_packet(si, entry, fin_packet);
-        deep_free_packet(fin_packet);
-
-        tcp_state_t old_state = entry->tcp_state;
-        tcp_state_t new_state = old_state == ESTABLISHED ? FIN_WAIT_1 : LAST_ACK;
-        chitcpd_update_tcp_state(si, entry, new_state);
-
-        tcp_data->closing = false;
-    }
 }
 
 int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *entry, tcp_event_type_t event)
@@ -520,7 +484,6 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 }
                 len = MIN(len, circular_buffer_available(&tcp_data->recv));
                 uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
-                // TODO 2b
                 tcp_data->RCV_NXT += bytes;
                 tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
                 // construct return packet
@@ -537,7 +500,6 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 
                 return;
             }
-            // TODO 2b deal with segment out of order: SEG_ACK(packet) > tcp_data->SND_NXT
         case FIN_WAIT_1:
             if (tcp_data->SND_UNA <= SEG_ACK(packet))
             {
@@ -655,5 +617,66 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         }
 
         return;
+    }
+}
+
+int send_data(serverinfo_t *si, chisocketentry_t *entry)
+{
+    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    uint32_t cnt_to_send = circular_buffer_count(&tcp_data->send);
+    uint16_t temp_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
+    while (cnt_to_send > 0 && temp_wnd > 0)
+    {
+        // extract data from send buffer
+        uint16_t size = MIN(cnt_to_send, TCP_MSS);
+        size = MIN(size, temp_wnd);
+        uint8_t dst[size];
+        uint16_t read_bytes = circular_buffer_read(&tcp_data->send, dst, size, false);
+        if (read_bytes < 0)
+        {
+            chilog(CRITICAL, "fail to read bytes from send buffer");
+            return -1;
+        }
+
+        // construct packet
+        tcp_packet_t *packet = calloc(1, sizeof(tcp_packet_t));
+        uint32_t packet_bytes = chitcpd_tcp_packet_create(entry, packet, dst, read_bytes);
+        tcphdr_t *header = TCP_PACKET_HEADER(packet);
+        header->ack = 1;
+        header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+        header->seq = chitcp_htonl(tcp_data->SND_NXT);
+        header->win = chitcp_htons(tcp_data->RCV_WND);
+
+        // send packet
+        chitcpd_send_tcp_packet(si, entry, packet);
+        deep_free_packet(packet);
+
+        tcp_data->SND_NXT += read_bytes;
+        temp_wnd -= read_bytes;
+        cnt_to_send = circular_buffer_count(&tcp_data->send);
+    }
+    return CHITCP_OK;
+}
+
+void send_fin(serverinfo_t *si, chisocketentry_t *entry)
+{
+    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    if (tcp_data->closing && circular_buffer_count(&tcp_data->send) == 0 &&
+        tcp_data->SND_NXT == tcp_data->SND_UNA)
+    {
+        tcp_packet_t *fin_packet = calloc(1, sizeof(tcp_packet_t));
+        chitcpd_tcp_packet_create(entry, fin_packet, NULL, 0);
+        tcphdr_t *fin_header = TCP_PACKET_HEADER(fin_packet);
+        fin_header->fin = 1;
+        fin_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+        fin_header->win = chitcp_htons(tcp_data->RCV_WND);
+        chitcpd_send_tcp_packet(si, entry, fin_packet);
+        deep_free_packet(fin_packet);
+
+        tcp_state_t old_state = entry->tcp_state;
+        tcp_state_t new_state = old_state == ESTABLISHED ? FIN_WAIT_1 : LAST_ACK;
+        chitcpd_update_tcp_state(si, entry, new_state);
+
+        tcp_data->closing = false;
     }
 }
