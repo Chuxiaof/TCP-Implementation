@@ -218,6 +218,7 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry)
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     uint32_t cnt_to_send = circular_buffer_count(&tcp_data->send);
     uint16_t temp_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
+    // uint16_t temp_wnd = tcp_data->SND_WND;
     while (cnt_to_send > 0 && temp_wnd > 0)
     {
         // extract data from send buffer
@@ -262,6 +263,7 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry)
         tcphdr_t *fin_header = TCP_PACKET_HEADER(fin_packet);
         fin_header->fin = 1;
         fin_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+        tcp_data->SND_NXT++;
         fin_header->win = chitcp_htons(tcp_data->RCV_WND);
         chitcpd_send_tcp_packet(si, entry, fin_packet);
         deep_free_packet(fin_packet);
@@ -640,20 +642,19 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         tcp_data->RCV_NXT = SEG_SEQ(packet) + 1;
         return_header->ack = 1;
         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+        return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+        chitcpd_send_tcp_packet(si, entry, return_packet);
 
         tcp_state_t new_state = state == ESTABLISHED ? CLOSE_WAIT : 
                                 state == FIN_WAIT_1 ? CLOSING : TIME_WAIT;
         chitcpd_update_tcp_state(si, entry, new_state);
-
-        chitcpd_send_tcp_packet(si, entry, return_packet);
-        deep_free_packet(return_packet);
-        deep_free_packet(packet);
-
         if (new_state == TIME_WAIT)
         {
             chitcpd_update_tcp_state(si, entry, CLOSED);
         }
 
+        deep_free_packet(return_packet);
+        deep_free_packet(packet);
         return;
     }
 }
