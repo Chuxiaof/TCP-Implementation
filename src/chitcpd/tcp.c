@@ -504,15 +504,6 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 deep_free_packet(packet);
                 return;
             }
-        // case FIN_WAIT_1:
-        //     if (tcp_data->SND_UNA <= SEG_ACK(packet))
-        //     {
-        //         tcp_data->SND_UNA = SEG_ACK(packet);
-        //         chitcpd_update_tcp_state(si, entry, FIN_WAIT_2);
-        //     }
-        //     deep_free_packet(return_packet);
-        //     deep_free_packet(packet);
-        //     return;
         case LAST_ACK:
             if (tcp_data->SND_UNA <= SEG_ACK(packet))
             {
@@ -676,10 +667,6 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry)
         fin_header->win = chitcp_htons(tcp_data->RCV_WND);
         chitcpd_send_tcp_packet(si, entry, fin_packet);
         deep_free_packet(fin_packet);
-
-        // tcp_state_t old_state = entry->tcp_state;
-        // tcp_state_t new_state = old_state == ESTABLISHED ? FIN_WAIT_1 : LAST_ACK;
-        // chitcpd_update_tcp_state(si, entry, new_state);
 
         if (entry->tcp_state == CLOSE_WAIT) {
             chitcpd_update_tcp_state(si, entry, LAST_ACK);
