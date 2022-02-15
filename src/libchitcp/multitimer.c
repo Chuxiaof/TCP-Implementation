@@ -45,7 +45,24 @@
 #include "chitcp/multitimer.h"
 #include "chitcp/log.h"
 
+static int timespec_cmp(struct timespec *x, struct timespec *y) {
+    if(x->tv_sec < y->tv_sec) {
+        return -1;
+    } else if(x->tv_sec > y->tv_sec){
+        return 1;
+    }
+    return x->tv_nsec - y->tv_nsec;
+}
 
+/* See multitimer.h */
+void timespec_add(struct timespec *expire_time, uint64_t timeout) {
+    long secs = timeout/(long)1e9;
+    long nsec = timeout % (long)1e9;
+    clock_gettime(CLOCK_REALTIME, expire_time);
+    long temp = expire_time->tv_nsec + nsec;
+    expire_time->tv_sec += secs + temp/(long)1e9;
+    expire_time->tv_nsec = temp%(long)1e9;
+}
 
 /* See multitimer.h */
 int timespec_subtract(struct timespec *result, struct timespec *x, struct timespec *y)
@@ -55,12 +72,14 @@ int timespec_subtract(struct timespec *result, struct timespec *x, struct timesp
     tmp.tv_nsec = y->tv_nsec;
 
     /* Perform the carry for the later subtraction by updating tmp. */
-    if (x->tv_nsec < tmp.tv_nsec) {
+    if (x->tv_nsec < tmp.tv_nsec)
+    {
         uint64_t sec = (tmp.tv_nsec - x->tv_nsec) / SECOND + 1;
         tmp.tv_nsec -= SECOND * sec;
         tmp.tv_sec += sec;
     }
-    if (x->tv_nsec - tmp.tv_nsec > SECOND) {
+    if (x->tv_nsec - tmp.tv_nsec > SECOND)
+    {
         uint64_t sec = (x->tv_nsec - tmp.tv_nsec) / SECOND;
         tmp.tv_nsec += SECOND * sec;
         tmp.tv_sec -= sec;
@@ -75,42 +94,64 @@ int timespec_subtract(struct timespec *result, struct timespec *x, struct timesp
     return x->tv_sec < tmp.tv_sec;
 }
 
-
 /* See multitimer.h */
 int mt_init(multi_timer_t *mt, uint16_t num_timers)
 {
-    /* Your code here */
+    mt->timer_num = num_timers;
+
+    mt->all_timers = calloc(num_timers, sizeof(single_timer_t));
+    if (mt->all_timers == NULL)
+    {
+        return CHITCP_ENOMEM;
+    }
+    uint16_t id = 0;
+    for (uint16_t i = 0; i < num_timers; i++)
+    {
+        single_timer_t *cur = &mt->all_timers[i];
+        cur->id = id++;
+    }
+
+    mt->active_timers = NULL;
+    pthread_mutex_init(&mt->lock, NULL);
+    pthread_cond_init(&mt->condvar, NULL);
 
     return CHITCP_OK;
 }
-
 
 /* See multitimer.h */
 int mt_free(multi_timer_t *mt)
 {
-    /* Your code here */
-
+    free(mt->all_timers);
     return CHITCP_OK;
 }
-
 
 /* See multitimer.h */
 int mt_get_timer_by_id(multi_timer_t *mt, uint16_t id, single_timer_t **timer)
 {
-    /* Your code here */
-
+    if (id < 0 || id >= mt->timer_num)
+    {
+        return CHITCP_EINVAL;
+    }
+    *timer = &mt->all_timers[id];
     return CHITCP_OK;
 }
-
 
 /* See multitimer.h */
-int mt_set_timer(multi_timer_t *mt, uint16_t id, uint64_t timeout, mt_callback_func callback, void* callback_args)
+int mt_set_timer(multi_timer_t *mt, uint16_t id, uint64_t timeout, mt_callback_func callback, void *callback_args)
 {
-    /* Your code here */
+    single_timer_t * timer;
+    if (mt_get_timer_by_id(mt, id, &timer) == CHITCP_EINVAL || timer->active) {
+        return CHITCP_EINVAL;
+    }
 
+    timer->active = true;
+    timer->callback = callback;
+    timer->callback_args = callback_args;
+    timespec_add(&timer->expire_time, timeout);
+    LL_INSERT_INORDER(mt->active_timers, timer, timespec_cmp);
+    
     return CHITCP_OK;
 }
-
 
 /* See multitimer.h */
 int mt_cancel_timer(multi_timer_t *mt, uint16_t id)
@@ -120,7 +161,6 @@ int mt_cancel_timer(multi_timer_t *mt, uint16_t id)
     return CHITCP_OK;
 }
 
-
 /* See multitimer.h */
 int mt_set_timer_name(multi_timer_t *mt, uint16_t id, const char *name)
 {
@@ -128,7 +168,6 @@ int mt_set_timer_name(multi_timer_t *mt, uint16_t id, const char *name)
 
     return CHITCP_OK;
 }
-
 
 /* mt_chilog_single_timer - Prints a single timer using chilog
  *
@@ -143,7 +182,7 @@ int mt_chilog_single_timer(loglevel_t level, single_timer_t *timer)
     struct timespec now, diff;
     clock_gettime(CLOCK_REALTIME, &now);
 
-    if(timer->active)
+    if (timer->active)
     {
         /* Compute the appropriate value for "diff" here; it should contain
          * the time remaining until the timer times out.
@@ -157,7 +196,6 @@ int mt_chilog_single_timer(loglevel_t level, single_timer_t *timer)
 
     return CHITCP_OK;
 }
-
 
 /* See multitimer.h */
 int mt_chilog(loglevel_t level, multi_timer_t *mt, bool active_only)

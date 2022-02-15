@@ -43,6 +43,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <pthread.h>
+#include <time.h>
 #include "chitcp/types.h"
 #include "chitcp/utlist.h"
 #include "chitcp/log.h"
@@ -89,6 +90,18 @@ typedef struct single_timer
 
     /* How many times has this timer timed out? */
     uint64_t num_timeouts;
+
+    /* time to expire */
+    struct timespec expire_time;
+
+    /* single timer's callback function */
+    mt_callback_func callback;
+
+    /* arguments for callback function */
+    void * callback_args;
+
+    /* needed for a singly-linked list */
+    struct single_timer * next;
 } single_timer_t;
 
 
@@ -96,6 +109,11 @@ typedef struct single_timer
 typedef struct multi_timer
 {
     /* Add fields here */
+    uint16_t timer_num;
+    single_timer_t * all_timers;
+    single_timer_t * active_timers;
+    pthread_cond_t condvar;
+    pthread_mutex_t lock;
 } multi_timer_t;
 
 
@@ -159,7 +177,7 @@ int mt_get_timer_by_id(multi_timer_t *mt, uint16_t id, single_timer_t **timer);
  *
  * mt: Multitimer
  *
- * id: Identifier of the timer to set
+ * id: Identifier of the time
  *
  * timeout: Timeout in nanoseconds. The timer will expire
  *          after this number of nanoseconds have passed.
@@ -236,5 +254,7 @@ int mt_chilog(loglevel_t level, multi_timer_t *mt, bool active_only);
  * Returns: 1 if the difference is negative, otherwise 0.
  */
 int timespec_subtract(struct timespec *result, struct timespec *x, struct timespec *y);
+
+void timespec_add(struct timespec *expire_time, uint64_t timeout);
 
 #endif /* MULTITIMER_H_ */

@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "time.h": "c",
+        "log.h": "c",
+        "multitimer.h": "c"
+    }
+}
