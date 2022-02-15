@@ -52,8 +52,10 @@ struct worker_args
 
 void *multiple_timer_machine(void *args);
 
-static int timespec_cmp(struct timespec *x, struct timespec *y)
-{
+static int timespec_cmp(single_timer_t * timer_x, single_timer_t * timer_y)
+{   
+    struct timespec *x= &timer_x->expire_time;
+    struct timespec *y= &timer_y->expire_time;
     if (x->tv_sec < y->tv_sec)
     {
         return -1;
