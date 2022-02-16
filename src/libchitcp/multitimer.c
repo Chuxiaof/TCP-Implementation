@@ -130,10 +130,9 @@ int mt_init(multi_timer_t *mt, uint16_t num_timers)
     pthread_cond_init(&mt->condvar, NULL);
 
     /* create multi-timer thread */
-    pthread_t multiple_timer_thread;
     struct worker_args *wa = calloc(1, sizeof(struct worker_args));
     wa->mt = mt;
-    if (pthread_create(&multiple_timer_thread, NULL, multiple_timer_machine, wa) != 0)
+    if (pthread_create(&mt->multiple_timer_thread, NULL, multiple_timer_machine, wa) != 0)
     {
         chilog(ERROR, "Could not create a multitimer thread");
         free(wa);
@@ -151,8 +150,9 @@ int mt_free(multi_timer_t *mt)
         pthread_cond_destroy(&mt->condvar);
         pthread_mutex_destroy(&mt->lock);
         free(mt->all_timers);
+        pthread_cancel(mt->multiple_timer_thread);
     }
-    free(mt);
+    //free(mt);
     return CHITCP_OK;
 }
 
@@ -288,7 +288,8 @@ void *multiple_timer_machine(void *args)
             single_timer_t *first_timer = mt->active_timers;
             int rv = pthread_cond_timedwait(&mt->condvar, &mt->lock, &first_timer->expire_time);
             if (rv == ETIMEDOUT)
-            {
+            {   
+                first_timer->num_timeouts++;
                 first_timer->callback(mt, first_timer, first_timer->callback_args);
                 first_timer->active = false;
                 LL_DELETE(mt->active_timers, first_timer);

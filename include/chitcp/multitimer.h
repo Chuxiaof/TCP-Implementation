@@ -114,6 +114,7 @@ typedef struct multi_timer
     single_timer_t * active_timers;
     pthread_cond_t condvar;
     pthread_mutex_t lock;
+    pthread_t multiple_timer_thread;
 } multi_timer_t;
 
 
