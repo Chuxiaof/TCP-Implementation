@@ -147,12 +147,11 @@ int mt_free(multi_timer_t *mt)
 {
     if (mt)
     {
+        pthread_cancel(mt->multiple_timer_thread);
         pthread_cond_destroy(&mt->condvar);
         pthread_mutex_destroy(&mt->lock);
         free(mt->all_timers);
-        pthread_cancel(mt->multiple_timer_thread);
     }
-    //free(mt);
     return CHITCP_OK;
 }
 
