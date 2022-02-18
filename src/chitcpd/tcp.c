@@ -132,6 +132,8 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry);
  */
 static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry);
 
+static uint64_t ms_to_ns(uint64_t ms);
+
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -142,6 +144,10 @@ void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 
     /* Initialization of additional tcp_data_t fields,
      * and creation of retransmission thread, goes here */
+    mt_init(&tcp_data->mt, 2);
+    tcp_data->retransmission_queue = NULL;
+    /* set initial RTO to 200 milliseconds*/
+    tcp_data->RTO=ms_to_ns(200);
 }
 
 void tcp_data_free(serverinfo_t *si, chisocketentry_t *entry)
@@ -155,6 +161,7 @@ void tcp_data_free(serverinfo_t *si, chisocketentry_t *entry)
     pthread_cond_destroy(&tcp_data->cv_pending_packets);
 
     /* Cleanup of additional tcp_data_t fields goes here */
+    mt_free(&tcp_data->mt);
 }
 
 int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, tcp_event_type_t event)
@@ -674,4 +681,8 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry)
 
         tcp_data->closing = false;
     }
+}
+
+static uint64_t ms_to_ns(uint64_t ms){
+    return ms*1000;
 }

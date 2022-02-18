@@ -127,6 +127,11 @@ typedef struct tcp_data
     pthread_cond_t cv_pending_packets;
 
     /* Transmission control block */
+    multi_timer_t mt;
+    retransmission_packet_t *retransmission_queue;
+    uint64_t RTO;
+    uint64_t SRTT;
+    uint64_t RTTVAR;
 
     /* Send sequence variables */
     uint32_t ISS;      /* Initial send sequence number */
@@ -145,6 +150,15 @@ typedef struct tcp_data
 
     /* Has a CLOSE been requested on this socket? */
     bool_t closing;
+
 } tcp_data_t;
+
+typedef struct retransmission_packet {
+    tcp_packet_t *packet;
+    bool is_retransmitted;
+    struct timespec sent_time;
+    struct retransmission_packet *next;
+} retransmission_packet_t;
+
 
 #endif /* TCP_H_ */
