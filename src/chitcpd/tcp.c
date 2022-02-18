@@ -101,38 +101,44 @@
 
 /**
  * @brief free both the raw content and tcp_packet_t itself
- * 
+ *
  * @param pointer to packet you want to free
  */
 static void deep_free_packet(tcp_packet_t *packet);
 
 /**
- * @brief segment long message, keep sending until send buffer is empty 
+ * @brief segment long message, keep sending until send buffer is empty
  *        or exhausting SND.WND
- * 
- * @param si 
- * @param entry 
+ *
+ * @param si
+ * @param entry
  * @return int, denoting success or not
  */
 int send_data(serverinfo_t *si, chisocketentry_t *entry);
 
 /**
  * @brief for delayed sending of fin message
- * 
- * @param si 
- * @param entry 
+ *
+ * @param si
+ * @param entry
  */
 void send_fin(serverinfo_t *si, chisocketentry_t *entry);
 
 /**
  * @brief a helper function that handle the arrival of new packet
- * 
- * @param si 
- * @param entry 
+ *
+ * @param si
+ * @param entry
  */
 static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry);
 
 static uint64_t ms_to_ns(uint64_t ms);
+
+static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *packet);
+
+static void retransmission_packet_free(retransmission_packet_t * re_packet);
+
+static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq);
 
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 {
@@ -146,8 +152,9 @@ void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
      * and creation of retransmission thread, goes here */
     mt_init(&tcp_data->mt, 2);
     tcp_data->retransmission_queue = NULL;
+    tcp_data->is_first_measurement = true;
     /* set initial RTO to 200 milliseconds*/
-    tcp_data->RTO=ms_to_ns(200);
+    tcp_data->RTO = ms_to_ns(200);
 }
 
 void tcp_data_free(serverinfo_t *si, chisocketentry_t *entry)
@@ -183,11 +190,10 @@ int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, t
         tcp_data->SND_NXT = tcp_data->ISS + 1;
         // set send buffer for client side
         assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
+
+        append_retransmission_queue(entry, packet);
         // send package and update state
         chitcpd_send_tcp_packet(si, entry, packet);
-        // free package
-        chitcp_tcp_packet_free(packet);
-        free(packet);
         // update state
         chitcpd_update_tcp_state(si, entry, SYN_SENT);
     }
@@ -412,6 +418,11 @@ static void deep_free_packet(tcp_packet_t *packet)
     free(packet);
 }
 
+static void retransmission_packet_free(retransmission_packet_t * re_packet){
+    deep_free_packet(re_packet->packet);
+    free(re_packet);
+}
+
 static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 {
     // extract a packet from pending list
@@ -486,7 +497,8 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 // write packet payload into recv buffer(disable blocking)
                 uint8_t *payload_start = TCP_PAYLOAD_START(packet);
                 uint32_t len = TCP_PAYLOAD_LEN(packet);
-                if (len > 0) {
+                if (len > 0)
+                {
                     len = MIN(len, circular_buffer_available(&tcp_data->recv));
                     uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
                     tcp_data->RCV_NXT += bytes;
@@ -497,13 +509,13 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                     return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
                     return_header->win = chitcp_htons(tcp_data->RCV_WND);
                     chitcpd_send_tcp_packet(si, entry, return_packet);
-
                 }
 
                 send_data(si, entry);
                 send_fin(si, entry);
 
-                if (entry->tcp_state == FIN_WAIT_1 && tcp_data->SND_UNA == tcp_data->SND_NXT) {
+                if (entry->tcp_state == FIN_WAIT_1 && tcp_data->SND_UNA == tcp_data->SND_NXT)
+                {
                     chitcpd_update_tcp_state(si, entry, FIN_WAIT_2);
                 }
 
@@ -545,7 +557,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 
         if (entry->tcp_state == LISTEN)
         {
-            return_header->syn = 1; // this is a SYN packet
+            return_header->syn = 1; // this is a SYN packet, needs to be added into retransmission queue
             // set the initial sequence number randomly
             tcp_data->ISS = (rand() % 1000 + 1) * 100000;
             return_header->seq = chitcp_htonl(tcp_data->ISS);
@@ -557,11 +569,14 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
             tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
             return_header->win = chitcp_htons(tcp_data->RCV_WND);
+            append_retransmission_queue(entry, return_packet);
+            chitcpd_send_tcp_packet(si, entry, return_packet);
         }
         else
         {
             // SYN_SENT
             // set receive buffer for client side
+            // Pure ack message, no need to get into retransmission queue
             assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
             tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
             if (header->ack)
@@ -581,10 +596,9 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             }
             tcp_data->SND_WND = SEG_WND(packet);
             return_header->win = chitcp_htons(tcp_data->RCV_WND);
+            chitcpd_send_tcp_packet(si, entry, return_packet);
+            deep_free_packet(return_packet);
         }
-        // send the responding packet
-        chitcpd_send_tcp_packet(si, entry, return_packet);
-        deep_free_packet(return_packet);
         deep_free_packet(packet);
         return;
     }
@@ -607,8 +621,8 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
         chitcpd_send_tcp_packet(si, entry, return_packet);
 
-        tcp_state_t new_state = state == ESTABLISHED ? CLOSE_WAIT : 
-                                state == FIN_WAIT_1 ? CLOSING : TIME_WAIT;
+        tcp_state_t new_state = state == ESTABLISHED ? CLOSE_WAIT : state == FIN_WAIT_1 ? CLOSING
+                                                                                        : TIME_WAIT;
         chitcpd_update_tcp_state(si, entry, new_state);
         if (new_state == TIME_WAIT)
         {
@@ -624,15 +638,15 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 int send_data(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-    uint32_t cnt_to_send = circular_buffer_count(&tcp_data->send);
-    uint16_t temp_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
-    while (cnt_to_send > 0 && temp_wnd > 0)
+    uint32_t cnt_to_send = circular_buffer_next(&tcp_data->send) - tcp_data->SND_NXT;
+    /* real_wnd: actually how many bytes can we send right now */
+    uint16_t real_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
+    while (cnt_to_send > 0 && real_wnd > 0)
     {
         // extract data from send buffer
-        uint16_t size = MIN(cnt_to_send, TCP_MSS);
-        size = MIN(size, temp_wnd);
+        uint16_t size = MIN(real_wnd, MIN(cnt_to_send, TCP_MSS));
         uint8_t dst[size];
-        uint16_t read_bytes = circular_buffer_read(&tcp_data->send, dst, size, false);
+        uint16_t read_bytes = circular_buffer_peek_at(&tcp_data->send, dst, tcp_data->SND_NXT, size);
         if (read_bytes < 0)
         {
             chilog(CRITICAL, "fail to read bytes from send buffer");
@@ -648,13 +662,15 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry)
         header->seq = chitcp_htonl(tcp_data->SND_NXT);
         header->win = chitcp_htons(tcp_data->RCV_WND);
 
+        append_retransmission_queue(entry, packet);
         // send packet
         chitcpd_send_tcp_packet(si, entry, packet);
-        deep_free_packet(packet);
+
+       
 
         tcp_data->SND_NXT += read_bytes;
-        temp_wnd -= read_bytes;
-        cnt_to_send = circular_buffer_count(&tcp_data->send);
+        real_wnd -= read_bytes;
+        cnt_to_send = circular_buffer_next(&tcp_data->send) - tcp_data->SND_NXT;
     }
     return CHITCP_OK;
 }
@@ -662,8 +678,7 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry)
 void send_fin(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-    if (tcp_data->closing && circular_buffer_count(&tcp_data->send) == 0 &&
-        tcp_data->SND_NXT == tcp_data->SND_UNA)
+    if (tcp_data->closing && circular_buffer_count(&tcp_data->send) == 0)
     {
         tcp_packet_t *fin_packet = calloc(1, sizeof(tcp_packet_t));
         chitcpd_tcp_packet_create(entry, fin_packet, NULL, 0);
@@ -672,10 +687,12 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry)
         fin_header->seq = chitcp_htonl(tcp_data->SND_NXT);
         tcp_data->SND_NXT += 1;
         fin_header->win = chitcp_htons(tcp_data->RCV_WND);
-        chitcpd_send_tcp_packet(si, entry, fin_packet);
-        deep_free_packet(fin_packet);
 
-        if (entry->tcp_state == CLOSE_WAIT) {
+        append_retransmission_queue(entry, fin_packet);
+        chitcpd_send_tcp_packet(si, entry, fin_packet);
+
+        if (entry->tcp_state == CLOSE_WAIT)
+        {
             chitcpd_update_tcp_state(si, entry, LAST_ACK);
         }
 
@@ -683,6 +700,36 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry)
     }
 }
 
-static uint64_t ms_to_ns(uint64_t ms){
-    return ms*1000;
+static uint64_t ms_to_ns(uint64_t ms)
+{
+    return ms * 1000;
+}
+
+static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *packet)
+{
+    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    // construct retransmission packet
+    struct timespec now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    retransmission_packet_t *re_packet = retransmission_packet_create(packet, now);
+    // add it to retransmission queue
+    LL_APPEND(tcp_data->retransmission_queue, re_packet);
+}
+
+static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq){
+    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    retransmission_packet_t *re_queue = tcp_data->retransmission_queue;
+    retransmission_packet_t *elt, *tmp;
+    LL_FOREACH_SAFE(tcp_data->retransmission_queue, elt, tmp){
+        int payload_len = TCP_PAYLOAD_LEN(elt->packet);
+        if(SEG_SEQ(elt->packet)+ payload_len<=ack_seq){
+            LL_DELETE(tcp_data->retransmission_queue, elt);
+            uint8_t des[payload_len];
+            int bytes = circular_buffer_read(&tcp_data->send, des, payload_len, false);
+            assert(bytes == payload_len);
+            retransmission_packet_free(elt);
+        }else{
+            break;
+        }
+    }
 }

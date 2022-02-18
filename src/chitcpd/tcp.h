@@ -54,20 +54,19 @@
 typedef enum
 {
     APPLICATION_CONNECT = 1,
-    APPLICATION_SEND    = 2,
+    APPLICATION_SEND = 2,
     APPLICATION_RECEIVE = 3,
-    APPLICATION_CLOSE   = 4,
-    PACKET_ARRIVAL      = 5,
-    TIMEOUT_RTX         = 6,
-    TIMEOUT_PST         = 7,
-    CLEANUP             = 8
+    APPLICATION_CLOSE = 4,
+    PACKET_ARRIVAL = 5,
+    TIMEOUT_RTX = 6,
+    TIMEOUT_PST = 7,
+    CLEANUP = 8
 } tcp_event_type_t;
-
 
 typedef enum
 {
-    RETRANSMISSION      = 0,
-    PERSIST             = 1,
+    RETRANSMISSION = 0,
+    PERSIST = 1,
 } tcp_timer_type_t;
 
 /*  Many values in tcp_data have identifiers from RFC 793, as below     */
@@ -99,22 +98,20 @@ typedef enum
 /* SND.UP, SND.WL1, SND.WL2, and RCV.UP are unused */
 
 static char *tcp_event_type_names[] =
-{
-    "APPLICATION_CONNECT",
-    "APPLICATION_SEND",
-    "APPLICATION_RECEIVE",
-    "APPLICATION_CLOSE",
-    "PACKET_ARRIVAL",
-    "TIMEOUT_RTX",
-    "TIMEOUT_PST",
-    "CLEANUP"
-};
+    {
+        "APPLICATION_CONNECT",
+        "APPLICATION_SEND",
+        "APPLICATION_RECEIVE",
+        "APPLICATION_CLOSE",
+        "PACKET_ARRIVAL",
+        "TIMEOUT_RTX",
+        "TIMEOUT_PST",
+        "CLEANUP"};
 
-static inline char *tcp_event_str (tcp_event_type_t evt)
+static inline char *tcp_event_str(tcp_event_type_t evt)
 {
-    return tcp_event_type_names[evt-1];
+    return tcp_event_type_names[evt - 1];
 }
-
 
 /* TCP data. Roughly corresponds to the variables and buffers
  * one would expect in a Transmission Control Block (as
@@ -132,17 +129,18 @@ typedef struct tcp_data
     uint64_t RTO;
     uint64_t SRTT;
     uint64_t RTTVAR;
+    bool is_first_measurement;
 
     /* Send sequence variables */
-    uint32_t ISS;      /* Initial send sequence number */
-    uint32_t SND_UNA;  /* First byte sent but not acknowledged */
-    uint32_t SND_NXT;  /* Next sendable byte */
-    uint16_t SND_WND;  /* Send Window */
+    uint32_t ISS;     /* Initial send sequence number */
+    uint32_t SND_UNA; /* First byte sent but not acknowledged */
+    uint32_t SND_NXT; /* Next sendable byte */
+    uint16_t SND_WND; /* Send Window */
 
     /* Receive sequence variables */
-    uint32_t IRS;      /* Initial receive sequence number */
-    uint32_t RCV_NXT;  /* Next byte expected */
-    uint16_t RCV_WND;  /* Receive Window */
+    uint32_t IRS;     /* Initial receive sequence number */
+    uint32_t RCV_NXT; /* Next byte expected */
+    uint16_t RCV_WND; /* Receive Window */
 
     /* Buffers */
     circular_buffer_t send;
@@ -153,12 +151,21 @@ typedef struct tcp_data
 
 } tcp_data_t;
 
-typedef struct retransmission_packet {
+typedef struct retransmission_packet
+{
     tcp_packet_t *packet;
     bool is_retransmitted;
     struct timespec sent_time;
     struct retransmission_packet *next;
 } retransmission_packet_t;
 
-
+// needs free
+static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packet, struct timespec sent_time)
+{
+    retransmission_packet_t *re_packet = calloc(1, sizeof(retransmission_packet_t));
+    re_packet->packet = packet;
+    re_packet->sent_time = sent_time;
+    re_packet->next = NULL;
+    return re_packet;
+}
 #endif /* TCP_H_ */
