@@ -99,6 +99,9 @@
 #include <string.h>
 #include <time.h>
 
+#define MAX_RTO 60000000000
+#define K 4
+
 /**
  * @brief free both the raw content and tcp_packet_t itself
  *
@@ -136,9 +139,16 @@ static uint64_t ms_to_ns(uint64_t ms);
 
 static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *packet);
 
-static void retransmission_packet_free(retransmission_packet_t * re_packet);
+static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packet, struct timespec sent_time);
+
+static void retransmission_packet_free(retransmission_packet_t *re_packet);
 
 static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq);
+
+static void start_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry);
+
+// TODO: rtx_args needs to be freed
+void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args);
 
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 {
@@ -194,6 +204,8 @@ int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, t
         append_retransmission_queue(entry, packet);
         // send package and update state
         chitcpd_send_tcp_packet(si, entry, packet);
+        
+        start_retransmission_timer(si, entry);
         // update state
         chitcpd_update_tcp_state(si, entry, SYN_SENT);
     }
@@ -418,7 +430,8 @@ static void deep_free_packet(tcp_packet_t *packet)
     free(packet);
 }
 
-static void retransmission_packet_free(retransmission_packet_t * re_packet){
+static void retransmission_packet_free(retransmission_packet_t *re_packet)
+{
     deep_free_packet(re_packet->packet);
     free(re_packet);
 }
@@ -464,6 +477,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 tcp_data->SND_UNA = SEG_ACK(packet);
                 tcp_data->SND_WND = SEG_WND(packet);
                 chitcpd_update_tcp_state(si, entry, ESTABLISHED);
+                sweep_away_acked_packets(entry, SEG_ACK(packet));
             }
             else
             {
@@ -494,6 +508,8 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             {
                 tcp_data->SND_UNA = SEG_ACK(packet);
                 tcp_data->SND_WND = SEG_WND(packet); // update the send window
+                
+                sweep_away_acked_packets(entry, SEG_ACK(packet));
                 // write packet payload into recv buffer(disable blocking)
                 uint8_t *payload_start = TCP_PAYLOAD_START(packet);
                 uint32_t len = TCP_PAYLOAD_LEN(packet);
@@ -526,6 +542,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         case LAST_ACK:
             if (tcp_data->SND_UNA <= SEG_ACK(packet))
             {
+                sweep_away_acked_packets(entry, SEG_ACK(packet));
                 chitcpd_update_tcp_state(si, entry, CLOSED);
             }
             deep_free_packet(return_packet);
@@ -571,6 +588,8 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             return_header->win = chitcp_htons(tcp_data->RCV_WND);
             append_retransmission_queue(entry, return_packet);
             chitcpd_send_tcp_packet(si, entry, return_packet);
+
+            start_retransmission_timer(si, entry);
         }
         else
         {
@@ -665,8 +684,10 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry)
         append_retransmission_queue(entry, packet);
         // send packet
         chitcpd_send_tcp_packet(si, entry, packet);
-
-       
+        /* whenever send data and retransmission timer is inactive, start it */
+        if(!tcp_data->mt.all_timers[0].active){
+            start_retransmission_timer(si, entry);
+        }
 
         tcp_data->SND_NXT += read_bytes;
         real_wnd -= read_bytes;
@@ -690,6 +711,10 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry)
 
         append_retransmission_queue(entry, fin_packet);
         chitcpd_send_tcp_packet(si, entry, fin_packet);
+        /* whenever send data and retransmission timer is inactive, start it */
+        if(!tcp_data->mt.all_timers[0].active){
+            start_retransmission_timer(si, entry);
+        }
 
         if (entry->tcp_state == CLOSE_WAIT)
         {
@@ -705,6 +730,16 @@ static uint64_t ms_to_ns(uint64_t ms)
     return ms * 1000;
 }
 
+static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packet, struct timespec sent_time)
+{
+    retransmission_packet_t *re_packet = calloc(1, sizeof(retransmission_packet_t));
+    re_packet->packet = packet;
+    re_packet->sent_time = sent_time;
+    re_packet->is_retransmitted = false;
+    re_packet->next = NULL;
+    return re_packet;
+}
+
 static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *packet)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -716,20 +751,64 @@ static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *p
     LL_APPEND(tcp_data->retransmission_queue, re_packet);
 }
 
-static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq){
+static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
+{
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    if(ack_seq <= tcp_data->SND_UNA){
+        return;
+    }
     retransmission_packet_t *re_queue = tcp_data->retransmission_queue;
     retransmission_packet_t *elt, *tmp;
-    LL_FOREACH_SAFE(tcp_data->retransmission_queue, elt, tmp){
+    struct timespec st;
+    LL_FOREACH_SAFE(tcp_data->retransmission_queue, elt, tmp)
+    {
         int payload_len = TCP_PAYLOAD_LEN(elt->packet);
-        if(SEG_SEQ(elt->packet)+ payload_len<=ack_seq){
+        if (SEG_SEQ(elt->packet) + payload_len <= ack_seq)
+        {
             LL_DELETE(tcp_data->retransmission_queue, elt);
             uint8_t des[payload_len];
             int bytes = circular_buffer_read(&tcp_data->send, des, payload_len, false);
             assert(bytes == payload_len);
+            st = elt->sent_time;
             retransmission_packet_free(elt);
-        }else{
+        }
+        else
+        {
             break;
         }
     }
+    struct timespec diff, now;
+    clock_gettime(CLOCK_REALTIME, &now);
+    timespec_subtract(&diff, &now, &st);
+    if(tcp_data->is_first_measurement){
+        //TODO update SRTT, RTTVAR, RTO
+    }else{
+         //TODO update SRTT, RTTVAR, RTO
+    }
+}
+
+static void start_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry)
+{
+    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    rtx_args_t *rtx_args = calloc(1, sizeof(rtx_args_t));
+    rtx_args->si = si;
+    rtx_args->entry = entry;
+    mt_set_timer(&tcp_data->mt, 0, tcp_data->RTO, rtx_callback_func, rtx_args);
+}
+
+void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args)
+{
+    rtx_args_t *args = (rtx_args_t *)rtx_args;
+    tcp_data_t *tcp_data = &(args->entry->socket_state.active.tcp_data);
+    retransmission_packet_t *re_queue = tcp_data->retransmission_queue;
+    retransmission_packet_t *elt, *tmp;
+    /* implement go-back-N */
+    LL_FOREACH_SAFE(tcp_data->retransmission_queue, elt, tmp)
+    {
+        elt->is_retransmitted = true;
+        chitcpd_send_tcp_packet(args->si, args->entry, elt->packet);
+    }
+    /* RTO backoff */
+    tcp_data->RTO = MIN(tcp_data->RTO * 2, MAX_RTO);
+    start_retransmission_timer(args->si, args->entry);
 }

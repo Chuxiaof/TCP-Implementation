@@ -124,12 +124,13 @@ typedef struct tcp_data
     pthread_cond_t cv_pending_packets;
 
     /* Transmission control block */
+    // may need an extra lock
     multi_timer_t mt;
     retransmission_packet_t *retransmission_queue;
     uint64_t RTO;
     uint64_t SRTT;
     uint64_t RTTVAR;
-    bool is_first_measurement;
+    bool is_first_measurement;     
 
     /* Send sequence variables */
     uint32_t ISS;     /* Initial send sequence number */
@@ -159,13 +160,9 @@ typedef struct retransmission_packet
     struct retransmission_packet *next;
 } retransmission_packet_t;
 
-// needs free
-static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packet, struct timespec sent_time)
-{
-    retransmission_packet_t *re_packet = calloc(1, sizeof(retransmission_packet_t));
-    re_packet->packet = packet;
-    re_packet->sent_time = sent_time;
-    re_packet->next = NULL;
-    return re_packet;
-}
+typedef struct rtx_args{
+    serverinfo_t * si;
+    chisocketentry_t * entry;
+}rtx_args_t;
+
 #endif /* TCP_H_ */
