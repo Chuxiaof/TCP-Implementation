@@ -147,7 +147,9 @@ int mt_free(multi_timer_t *mt)
 {
     if (mt)
     {
+        // stop the timer thread
         pthread_cancel(mt->multiple_timer_thread);
+        // free related memory
         pthread_cond_destroy(&mt->condvar);
         pthread_mutex_destroy(&mt->lock);
         free(mt->all_timers);
