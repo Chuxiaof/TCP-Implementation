@@ -112,6 +112,11 @@
 #define RTM_TIMER_ID 0
 #define PST_TIMER_ID 1
 
+typedef struct rtx_args {
+    serverinfo_t * si;
+    chisocketentry_t * entry;
+} rtx_args_t;
+
 /**
  * @brief free both the raw content and tcp_packet_t itself
  *
@@ -496,6 +501,10 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 tcp_data->SND_WND = SEG_WND(packet);
                 chitcpd_update_tcp_state(si, entry, ESTABLISHED);
                 sweep_away_acked_packets(entry, SEG_ACK(packet));
+                mt_cancel_timer(&tcp_data->mt, RTM_TIMER_ID);
+                // reset timer
+                if (tcp_data->SND_UNA < tcp_data->SND_NXT)
+                    set_retransmission_timer(si, entry);
             }
             else
             {
@@ -528,6 +537,11 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
                 tcp_data->SND_WND = SEG_WND(packet); // update the send window
                 
                 sweep_away_acked_packets(entry, SEG_ACK(packet));
+                mt_cancel_timer(&tcp_data->mt, RTM_TIMER_ID);
+                // reset timer
+                if (tcp_data->SND_UNA < tcp_data->SND_NXT)
+                    set_retransmission_timer(si, entry);
+
                 // write packet payload into recv buffer(disable blocking)
                 uint8_t *payload_start = TCP_PAYLOAD_START(packet);
                 uint32_t len = TCP_PAYLOAD_LEN(packet);
@@ -561,6 +575,10 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             if (tcp_data->SND_UNA <= SEG_ACK(packet))
             {
                 sweep_away_acked_packets(entry, SEG_ACK(packet));
+                mt_cancel_timer(&tcp_data->mt, RTM_TIMER_ID);
+                // reset timer
+                if (tcp_data->SND_UNA < tcp_data->SND_NXT)
+                    set_retransmission_timer(si, entry);
                 chitcpd_update_tcp_state(si, entry, CLOSED);
             }
             deep_free_packet(return_packet);
@@ -785,6 +803,8 @@ static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
             // free related bytes in send buffer
             uint8_t des[payload_len];
             int bytes = circular_buffer_read(&tcp_data->send, des, payload_len, false);
+            chilog(ERROR, "bytes: %i", bytes);
+            chilog(ERROR, "payload_len: %i", payload_len);
             assert(bytes == payload_len);
             // exclude retransmitted segments
             if (!elt->is_retransmitted) {

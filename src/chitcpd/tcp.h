@@ -113,6 +113,14 @@ static inline char *tcp_event_str(tcp_event_type_t evt)
     return tcp_event_type_names[evt - 1];
 }
 
+typedef struct retransmission_packet
+{
+    tcp_packet_t *packet;
+    bool is_retransmitted;
+    struct timespec sent_time;
+    struct retransmission_packet *next;
+} retransmission_packet_t;
+
 /* TCP data. Roughly corresponds to the variables and buffers
  * one would expect in a Transmission Control Block (as
  * specified in RFC 793). */
@@ -151,18 +159,5 @@ typedef struct tcp_data
     bool_t closing;
 
 } tcp_data_t;
-
-typedef struct retransmission_packet
-{
-    tcp_packet_t *packet;
-    bool is_retransmitted;
-    struct timespec sent_time;
-    struct retransmission_packet *next;
-} retransmission_packet_t;
-
-typedef struct rtx_args{
-    serverinfo_t * si;
-    chisocketentry_t * entry;
-}rtx_args_t;
 
 #endif /* TCP_H_ */
