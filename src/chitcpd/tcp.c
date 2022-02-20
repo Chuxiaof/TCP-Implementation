@@ -102,14 +102,13 @@
 #define SEGMENT_SUCCESS 1
 #define SEGMENT_DROP -1
 
-#define MS_TO_NS(n) (n * 1000) 
+#define MS_TO_NS(n) ((long) n * 1000000) 
 
 #define G (MS_TO_NS(50))
 #define K 4
 #define RTO_ALPHA (1 / 8)
 #define RTO_BETA (1 / 4)
 #define RTO_INIT (MS_TO_NS(200))
-// #define RTO_INIT (MS_TO_NS(30000))
 #define MAX_RTO (MS_TO_NS(60000))
 
 #define TIMER_NUM 2
@@ -518,26 +517,29 @@ int syn_sent_handler(serverinfo_t *si, chisocketentry_t *entry,
             if (tcp_data->SND_UNA < tcp_data->SND_NXT)
                 // reset timer
                 set_retransmission_timer(si, entry);
-        }   
+        } 
+        // our SYN has been ACKed
+        if (tcp_data->SND_UNA > tcp_data->ISS)
+        {
+            chitcpd_update_tcp_state(si, entry, ESTABLISHED);
+            return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+            return_header->ack = 1;
+            return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+        } else {
+            chitcpd_update_tcp_state(si, entry, SYN_RCVD);
+            return_header->seq = htonl(tcp_data->ISS);
+            return_header->ack = 1;
+            return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+            return_header->syn = 1;
+        }  
+        // update recv_wnd
+        tcp_data->SND_WND = SEG_WND(packet);
+        // init recv buffer
+        assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
+        tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
+        return SEGMENT_SUCCESS;
     }
-    // our SYN has been ACKed
-    if (tcp_data->SND_UNA > tcp_data->ISS)
-    {
-        chitcpd_update_tcp_state(si, entry, ESTABLISHED);
-        return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-        return_header->ack = 1;
-        return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-    } else {
-        chitcpd_update_tcp_state(si, entry, SYN_RCVD);
-        return_header->seq = htonl(tcp_data->ISS);
-        return_header->ack = 1;
-        return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-        return_header->syn = 1;
-    }
-    // init recv buffer
-    assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
-    tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-    return SEGMENT_SUCCESS;
+    return SEGMENT_DROP;
 }
 
 int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
@@ -577,8 +579,9 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
             chilog(ERROR, "In SYN_RCVD state, the segment acknowledgement is unacceptable.");
         } 
     } else if (entry->tcp_state == LAST_ACK) {
+        tcp_data->SND_UNA = SEG_ACK(packet);
         // ACK our FIN
-        if (tcp_data->SND_UNA == SEG_ACK(packet))
+        if (tcp_data->SND_UNA == tcp_data->SND_NXT)
         {
             chitcpd_update_tcp_state(si, entry, CLOSED);
             return SEGMENT_DROP;
@@ -589,8 +592,9 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
             tcp_data->SND_UNA = SEG_ACK(packet);
             tcp_data->SND_WND = SEG_WND(packet);
         }
-        if (entry->tcp_state == FIN_WAIT_1 && tcp_data->SND_NXT == tcp_data->SND_UNA) {
-            // our FIN is acknowledged
+        if (entry->tcp_state == FIN_WAIT_1 && !tcp_data->closing &&
+             tcp_data->SND_NXT == tcp_data->SND_UNA) {
+            // our FIN has been sent and acknowledged
             chitcpd_update_tcp_state(si, entry, FIN_WAIT_2);
         }
         if (entry->tcp_state == CLOSING && tcp_data->SND_NXT == tcp_data->SND_UNA) {
@@ -607,7 +611,8 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
     // used to denote whether we need to send a return packet
     bool flag = false;
     // fourth process the segment text
-    if (payload_len > 0) {
+    /* out of order delivery */
+    if (payload_len > 0 && SEG_SEQ(packet) == tcp_data->RCV_NXT) {
         uint8_t *payload_start = TCP_PAYLOAD_START(packet);
         uint32_t len = MIN(payload_len, circular_buffer_available(&tcp_data->recv));
         uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
@@ -681,8 +686,13 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         }
     }
 
-    send_data(si, entry);
-    send_fin(si, entry);
+    // send remaining data in the buffer
+    if (entry->tcp_state == ESTABLISHED || entry->tcp_state == FIN_WAIT_1)
+        send_data(si, entry);
+    
+    // try send fin
+    if (entry->tcp_state == FIN_WAIT_1 || entry->tcp_state == CLOSE_WAIT)
+        send_fin(si, entry);
 
     deep_free_packet(packet);
 }
@@ -811,14 +821,14 @@ static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
         struct timespec diff, now;
         clock_gettime(CLOCK_REALTIME, &now);
         timespec_subtract(&diff, &now, &st);
-        uint64_t R = MS_TO_NS(diff.tv_sec) + diff.tv_nsec;
+        uint64_t R = MS_TO_NS(diff.tv_sec * 1000) + diff.tv_nsec;
         if(tcp_data->is_first_measurement){
             tcp_data->SRTT = R;
             tcp_data->RTTVAR = R >> 2;
             tcp_data->is_first_measurement = false;
-        }else{          
-            // TODO
-            tcp_data->RTTVAR = (1 - RTO_BETA) * tcp_data->RTTVAR + RTO_BETA * abs(tcp_data->SRTT - R);
+        }else{ 
+            uint64_t temp = MAX(tcp_data->SRTT, R) - MIN(tcp_data->SRTT, R);
+            tcp_data->RTTVAR = (1 - RTO_BETA) * tcp_data->RTTVAR + RTO_BETA * temp;
             tcp_data->SRTT = (1 - RTO_ALPHA) * tcp_data->SRTT + RTO_ALPHA * R;
         }
         tcp_data->RTO = tcp_data->SRTT + MAX(G, K * tcp_data->RTTVAR);
@@ -832,7 +842,8 @@ static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry)
     rtx_args->si = si;
     rtx_args->entry = entry;
     // this function will return if the timer is already active
-    mt_set_timer(&tcp_data->mt, RTX_TIMER_ID, tcp_data->RTO, rtx_callback_func, rtx_args);
+    if (mt_set_timer(&tcp_data->mt, RTX_TIMER_ID, tcp_data->RTO, rtx_callback_func, rtx_args) == CHITCP_EINVAL)
+        free(rtx_args);
 }
 
 void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args) {
