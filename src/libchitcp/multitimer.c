@@ -123,6 +123,7 @@ int mt_init(multi_timer_t *mt, uint16_t num_timers)
     {
         single_timer_t *cur = &mt->all_timers[i];
         cur->id = id++;
+        cur->active = false;
     }
 
     mt->active_timers = NULL;
