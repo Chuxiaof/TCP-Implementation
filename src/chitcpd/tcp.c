@@ -99,8 +99,8 @@
 #include <string.h>
 #include <time.h>
 
-#define SEGMENT_SUCCESS 1;
-#define SEGMENT_DROP -1;
+#define SEGMENT_SUCCESS 1
+#define SEGMENT_DROP -1
 
 #define MS_TO_NS(n) (n * 1000) 
 
@@ -109,6 +109,7 @@
 #define RTO_ALPHA (1 / 8)
 #define RTO_BETA (1 / 4)
 #define RTO_INIT (MS_TO_NS(200))
+// #define RTO_INIT (MS_TO_NS(10000))
 #define MAX_RTO (MS_TO_NS(60000))
 
 #define TIMER_NUM 2
@@ -776,9 +777,9 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
     if (SEG_SEQ(packet) < tcp_data->RCV_NXT || 
         SEG_SEQ(packet) + payload_len - 1 >= tcp_data->RCV_NXT + tcp_data->RCV_WND) {
         // unacceptable segment
-        return_header->seq = tcp_data->SND_NXT;
+        return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
         return_header->ack = 1;
-        return_header->ack_seq = tcp_data->RCV_NXT;
+        return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
         if (tcp_data->RCV_WND != 0)
             return SEGMENT_SUCCESS;
     }
@@ -897,7 +898,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
     if (rv == SEGMENT_SUCCESS) {
         tcphdr_t *return_header = TCP_PACKET_HEADER(return_packet);
         // add window size
-        return_header->win = tcp_data->RCV_WND;
+        return_header->win = chitcp_htons(tcp_data->RCV_WND);
         if (return_header->syn) {
             append_retransmission_queue(entry, return_packet);
         }
@@ -1015,9 +1016,11 @@ static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
             // remove it from retransmission queue
             LL_DELETE(tcp_data->retransmission_queue, elt);
             // free related bytes in send buffer
-            uint8_t des[payload_len];
-            int bytes = circular_buffer_read(&tcp_data->send, des, payload_len, false);
-            assert(bytes == payload_len);
+            if (payload_len > 0) {
+                uint8_t des[payload_len];
+                int bytes = circular_buffer_read(&tcp_data->send, des, payload_len, false);
+                assert(bytes == payload_len);
+            }
             // exclude retransmitted segments
             if (!elt->is_retransmitted) {
                 is_update_rto = true;
@@ -1040,6 +1043,7 @@ static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
             tcp_data->RTTVAR = R >> 2;
             tcp_data->is_first_measurement = false;
         }else{          
+            // TODO
             tcp_data->RTTVAR = (1 - RTO_BETA) * tcp_data->RTTVAR + RTO_BETA * abs(tcp_data->SRTT - R);
             tcp_data->SRTT = (1 - RTO_ALPHA) * tcp_data->SRTT + RTO_ALPHA * R;
         }
@@ -1064,6 +1068,7 @@ void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args) {
 
 void resend_packets(serverinfo_t *si, chisocketentry_t *entry)
 {
+    // TODO send wnd
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     retransmission_packet_t *re_queue = tcp_data->retransmission_queue;
     /* implement go-back-N */
