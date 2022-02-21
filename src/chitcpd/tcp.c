@@ -181,6 +181,8 @@ static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry);
 // TODO: rtx_args needs to be freed
 void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args);
 
+void pst_callback_func(multi_timer_t *mt, single_timer_t *st, void *pst_args);
+
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -191,7 +193,7 @@ void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 
     /* Initialization of additional tcp_data_t fields,
      * and creation of retransmission thread, goes here */
-    mt_init(&tcp_data->mt, 2);
+    mt_init(&tcp_data->mt, TIMER_NUM);
     tcp_data->retransmission_queue = NULL;
     tcp_data->is_first_measurement = true;
     /* set initial RTO to 200 milliseconds*/
@@ -324,6 +326,7 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
     else if (event == TIMEOUT_PST)
     {
         /* Your code goes here */
+        pst_timeout_handler(si, entry);
     }
     else
         chilog(WARNING, "In ESTABLISHED state, received unexpected event (%i).", event);
@@ -350,6 +353,7 @@ int chitcpd_tcp_state_handle_FIN_WAIT_1(serverinfo_t *si, chisocketentry_t *entr
     else if (event == TIMEOUT_PST)
     {
         /* Your code goes here */
+        pst_timeout_handler(si, entry);
     }
     else
         chilog(WARNING, "In FIN_WAIT_1 state, received unexpected event (%i).", event);
@@ -399,6 +403,7 @@ int chitcpd_tcp_state_handle_CLOSE_WAIT(serverinfo_t *si, chisocketentry_t *entr
     else if (event == TIMEOUT_PST)
     {
         /* Your code goes here */
+        pst_timeout_handler(si, entry);
     }
     else
         chilog(WARNING, "In CLOSE_WAIT state, received unexpected event (%i).", event);
@@ -420,6 +425,7 @@ int chitcpd_tcp_state_handle_CLOSING(serverinfo_t *si, chisocketentry_t *entry, 
     else if (event == TIMEOUT_PST)
     {
         /* Your code goes here */
+        pst_timeout_handler(si, entry);
     }
     else
         chilog(WARNING, "In CLOSING state, received unexpected event (%i).", event);
@@ -448,6 +454,7 @@ int chitcpd_tcp_state_handle_LAST_ACK(serverinfo_t *si, chisocketentry_t *entry,
     else if (event == TIMEOUT_PST)
     {
         /* Your code goes here */
+        pst_timeout_handler(si, entry);
     }
     else
         chilog(WARNING, "In LAST_ACK state, received unexpected event (%i).", event);
@@ -653,8 +660,14 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
         uint8_t *payload_start = TCP_PAYLOAD_START(packet);
         uint32_t len = MIN(payload_len, circular_buffer_available(&tcp_data->recv));
         uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
+        if (bytes == CHITCP_EINVAL)
+        {
+            bytes = 0;
+        }
+        chilog(ERROR, "number of bytes written in recv buffer: %i", bytes);
         tcp_data->RCV_NXT += bytes;
         tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
+        chilog(ERROR, "number of bytes available in recv buffer: %i", tcp_data->RCV_WND);
         // construct return packet
         return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
         return_header->ack = 1;
@@ -690,6 +703,7 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
 
     if (flag)
         return SEGMENT_SUCCESS;
+    chilog(ERROR, "choose drop");
     return SEGMENT_DROP;
 }
 
@@ -716,6 +730,7 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
             mt_cancel_timer(&tcp_data->mt, PST_TIMER_ID);
         }
     }
+
     // construct the responding packet to be sent
     tcp_packet_t *return_packet = calloc(1, sizeof(tcp_packet_t));
     chitcpd_tcp_packet_create(entry, return_packet, NULL, 0);
@@ -763,13 +778,17 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 }
 
 int send_data(serverinfo_t *si, chisocketentry_t *entry)
-{
+{   
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
+    if(tcp_data->SND_WND < (tcp_data->SND_NXT - tcp_data->SND_UNA)){
+        return CHITCP_OK;
+    }
     uint32_t cnt_to_send = circular_buffer_next(&tcp_data->send) - tcp_data->SND_NXT;
     /* real_wnd: actually how many bytes can we send right now */
     uint16_t real_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
+    chilog(ERROR, "SND_WND: %i, circular_buffer_next: %i, cnt_to_send: %i, real_wnd: %i", tcp_data->SND_WND, circular_buffer_next(&tcp_data->send), cnt_to_send, real_wnd);
     while (cnt_to_send > 0 && real_wnd > 0)
-    {
+    {   
         // extract data from send buffer
         uint16_t size = MIN(cnt_to_send, TCP_MSS);
         size = MIN(size, real_wnd);
@@ -960,15 +979,17 @@ void resend_packets(serverinfo_t *si, chisocketentry_t *entry)
     set_retransmission_timer(si, entry);
 }
 
-
 static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     if (circular_buffer_count(&tcp_data->send) > 0)
     {
         tcp_packet_t *probe = calloc(1, sizeof(tcp_packet_t));
-        uint8_t *pay_load;
-        circular_buffer_peek_at(&tcp_data->send, pay_load, tcp_data->SND_UNA, PROBE_LENGTH);
+        uint8_t pay_load[PROBE_LENGTH];
+        if (circular_buffer_peek_at(&tcp_data->send, pay_load, tcp_data->SND_UNA, PROBE_LENGTH) == CHITCP_EINVAL)
+        {
+            chilog(ERROR, "send buffer peek at invalid sequence.");
+        }
         uint32_t packet_bytes = chitcpd_tcp_packet_create(entry, probe, pay_load, PROBE_LENGTH);
         tcphdr_t *header = TCP_PACKET_HEADER(probe);
         header->ack = 1;
@@ -979,6 +1000,7 @@ static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
         /* whenever pst timeout happes, SND_NXT must be either exactly SND_UNA or (SND_UNA + 1) */
         if (tcp_data->SND_NXT > tcp_data->SND_UNA)
         {
+            chilog(ERROR, "SND_NXT: %i,  SND_UNA: %i", tcp_data->SND_NXT, tcp_data->SND_UNA);
             assert(tcp_data->SND_NXT == tcp_data->SND_UNA + 1);
         }
         else
