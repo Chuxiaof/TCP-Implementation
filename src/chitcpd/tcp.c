@@ -108,7 +108,7 @@
 #define K 4
 #define RTO_ALPHA (1 / 8)
 #define RTO_BETA (1 / 4)
-#define RTO_INIT (MS_TO_NS(200))
+#define RTO_INIT (MS_TO_NS(1000))
 #define MAX_RTO (MS_TO_NS(60000))
 
 #define TIMER_NUM 2
@@ -183,6 +183,10 @@ void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args);
 
 void pst_callback_func(multi_timer_t *mt, single_timer_t *st, void *pst_args);
 
+static out_of_order_packet_t *out_of_order_packet_create(tcp_packet_t *packet);
+
+static int out_of_order_packet_cmp(out_of_order_packet_t *x, out_of_order_packet_t *y);
+
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -196,6 +200,7 @@ void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
     mt_init(&tcp_data->mt, TIMER_NUM);
     tcp_data->retransmission_queue = NULL;
     tcp_data->is_first_measurement = true;
+    tcp_data->out_of_order_packets_list = NULL;
     /* set initial RTO to 200 milliseconds*/
     tcp_data->RTO = RTO_INIT;
 }
@@ -627,6 +632,7 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
     }
     else
     {
+        // TODO: how to decide which kind of ack are valid
         // ESTABLISHED, FIN_WAIT_1, FIN_WAIT_2, CLOSE_WAIT, CLOSING
         if (tcp_data->SND_UNA <= SEG_ACK(packet) && SEG_ACK(packet) <= tcp_data->SND_NXT)
         {
@@ -655,20 +661,47 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
     bool flag = false;
     // fourth process the segment text
     /* out of order delivery */
-    if (payload_len > 0 && SEG_SEQ(packet) == tcp_data->RCV_NXT)
+    if (payload_len > 0)
     {
-        uint8_t *payload_start = TCP_PAYLOAD_START(packet);
-        uint32_t len = MIN(payload_len, circular_buffer_available(&tcp_data->recv));
-        uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
-        if (bytes == CHITCP_EINVAL)
+        if (SEG_SEQ(packet) == tcp_data->RCV_NXT)
         {
-            bytes = 0;
+            uint8_t *payload_start = TCP_PAYLOAD_START(packet);
+            uint32_t len = MIN(payload_len, circular_buffer_available(&tcp_data->recv));
+            uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
+            if (bytes == CHITCP_EINVAL)
+            {
+                bytes = 0;
+            }
+            tcp_data->RCV_NXT += bytes;
+            tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
+            // construct return packet
+
+            /*return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
+            return_header->ack = 1;
+            return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
+            flag = true;*/
+
+            // check whether there are any contiguous segments in out-of-order list
+            if (tcp_data->out_of_order_packets_list != NULL)
+            {
+                tcp_packet_t *head_packet = tcp_data->out_of_order_packets_list->packet;
+                if (SEG_SEQ(head_packet) == tcp_data->RCV_NXT)
+                {
+                    chilog(ERROR, "checkpoint 1");
+                    pthread_mutex_lock(&tcp_data->lock_pending_packets);
+                    chitcp_packet_list_append(&tcp_data->pending_packets, head_packet);
+                    pthread_mutex_unlock(&tcp_data->lock_pending_packets);
+                    out_of_order_packet_t *tmp = tcp_data->out_of_order_packets_list;
+                    LL_DELETE(tcp_data->out_of_order_packets_list, tmp);
+                    free(tmp);
+                }
+            }
         }
-        chilog(ERROR, "number of bytes written in recv buffer: %i", bytes);
-        tcp_data->RCV_NXT += bytes;
-        tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-        chilog(ERROR, "number of bytes available in recv buffer: %i", tcp_data->RCV_WND);
-        // construct return packet
+        else
+        {
+            out_of_order_packet_t *o_packet = out_of_order_packet_create(packet);
+            LL_INSERT_INORDER(tcp_data->out_of_order_packets_list, o_packet, out_of_order_packet_cmp);
+        }
         return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
         return_header->ack = 1;
         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
@@ -703,7 +736,6 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
 
     if (flag)
         return SEGMENT_SUCCESS;
-    chilog(ERROR, "choose drop");
     return SEGMENT_DROP;
 }
 
@@ -778,17 +810,18 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 }
 
 int send_data(serverinfo_t *si, chisocketentry_t *entry)
-{   
+{
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-    if(tcp_data->SND_WND < (tcp_data->SND_NXT - tcp_data->SND_UNA)){
+    if (tcp_data->SND_WND < (tcp_data->SND_NXT - tcp_data->SND_UNA))
+    {
         return CHITCP_OK;
     }
     uint32_t cnt_to_send = circular_buffer_next(&tcp_data->send) - tcp_data->SND_NXT;
     /* real_wnd: actually how many bytes can we send right now */
     uint16_t real_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
-    chilog(ERROR, "SND_WND: %i, circular_buffer_next: %i, cnt_to_send: %i, real_wnd: %i", tcp_data->SND_WND, circular_buffer_next(&tcp_data->send), cnt_to_send, real_wnd);
+    // chilog(ERROR, "SND_WND: %i, circular_buffer_next: %i, cnt_to_send: %i, real_wnd: %i", tcp_data->SND_WND, circular_buffer_next(&tcp_data->send), cnt_to_send, real_wnd);
     while (cnt_to_send > 0 && real_wnd > 0)
-    {   
+    {
         // extract data from send buffer
         uint16_t size = MIN(cnt_to_send, TCP_MSS);
         size = MIN(size, real_wnd);
@@ -1000,7 +1033,6 @@ static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
         /* whenever pst timeout happes, SND_NXT must be either exactly SND_UNA or (SND_UNA + 1) */
         if (tcp_data->SND_NXT > tcp_data->SND_UNA)
         {
-            chilog(ERROR, "SND_NXT: %i,  SND_UNA: %i", tcp_data->SND_NXT, tcp_data->SND_UNA);
             assert(tcp_data->SND_NXT == tcp_data->SND_UNA + 1);
         }
         else
@@ -1009,6 +1041,29 @@ static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
         }
     }
     set_persist_timer(si, entry);
+}
+
+static out_of_order_packet_t *out_of_order_packet_create(tcp_packet_t *packet)
+{
+    out_of_order_packet_t *o_packet = calloc(1, sizeof(out_of_order_packet_t));
+    o_packet->packet = packet;
+    return o_packet;
+}
+
+static int out_of_order_packet_cmp(out_of_order_packet_t *x, out_of_order_packet_t *y)
+{
+    if (SEG_SEQ(x->packet) < SEG_SEQ(y->packet))
+    {
+        return -1;
+    }
+    else if (SEG_SEQ(x->packet) > SEG_SEQ(y->packet))
+    {
+        return 1;
+    }
+    else
+    {
+        return 0;
+    }
 }
 
 // static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)

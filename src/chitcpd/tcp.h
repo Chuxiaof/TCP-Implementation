@@ -121,6 +121,12 @@ typedef struct retransmission_packet
     struct retransmission_packet *next;
 } retransmission_packet_t;
 
+typedef struct out_of_order_packet
+{
+    tcp_packet_t *packet;
+    struct out_of_order_packet *next;
+} out_of_order_packet_t;
+
 /* TCP data. Roughly corresponds to the variables and buffers
  * one would expect in a Transmission Control Block (as
  * specified in RFC 793). */
@@ -132,13 +138,16 @@ typedef struct tcp_data
     pthread_cond_t cv_pending_packets;
 
     /* Transmission control block */
-    // may need an extra lock
     multi_timer_t mt;
     retransmission_packet_t *retransmission_queue;
     uint64_t RTO;
     uint64_t SRTT;
     uint64_t RTTVAR;
-    bool is_first_measurement;     
+    bool is_first_measurement;   
+
+    /* Queue with out-of-order packets received from the network */
+    out_of_order_packet_t *out_of_order_packets_list;
+
 
     /* Send sequence variables */
     uint32_t ISS;     /* Initial send sequence number */
