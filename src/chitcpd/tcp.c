@@ -169,7 +169,7 @@ static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packe
 
 static void retransmission_packet_free(retransmission_packet_t *re_packet);
 
-static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq);
+static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, tcp_seq ack_seq);
 
 static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry);
 
@@ -544,11 +544,7 @@ int syn_sent_handler(serverinfo_t *si, chisocketentry_t *entry,
         {
             tcp_data->SND_UNA = SEG_ACK(packet);
             // update retransmission queue
-            mt_cancel_timer(&tcp_data->mt, RTX_TIMER_ID);
-            sweep_away_acked_packets(entry, SEG_ACK(packet));
-            if (tcp_data->SND_UNA < tcp_data->SND_NXT)
-                // reset timer
-                set_retransmission_timer(si, entry);
+            sweep_away_acked_packets(si, entry, SEG_ACK(packet));
         }
         // our SYN has been ACKed
         if (tcp_data->SND_UNA > tcp_data->ISS)
@@ -652,11 +648,8 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
             chitcpd_update_tcp_state(si, entry, CLOSED);
         }
     }
-    mt_cancel_timer(&tcp_data->mt, RTX_TIMER_ID);
-    sweep_away_acked_packets(entry, SEG_ACK(packet));
-    if (tcp_data->SND_UNA < tcp_data->SND_NXT)
-        // reset timer
-        set_retransmission_timer(si, entry);
+
+    sweep_away_acked_packets(si, entry, SEG_ACK(packet));
 
     // used to denote whether we need to send a return packet
     bool is_reply = false;
@@ -698,7 +691,19 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
         else
         {
             out_of_order_packet_t *o_packet = out_of_order_packet_create(packet);
-            LL_INSERT_INORDER(tcp_data->out_of_order_packets_list, o_packet, out_of_order_packet_cmp);
+            out_of_order_packet_t *elt;
+            // eliminate duplicate packets
+            bool is_duplicate = false;
+            LL_FOREACH(tcp_data->out_of_order_packets_list, elt) {
+                if (out_of_order_packet_cmp(o_packet, elt) == 0) {
+                    is_duplicate = true;
+                    break;
+                }
+            }
+            if (!is_duplicate) {
+                LL_INSERT_INORDER(tcp_data->out_of_order_packets_list, o_packet, 
+                    out_of_order_packet_cmp);
+            }
             is_keep = true;
         }
         return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
@@ -904,7 +909,7 @@ static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *p
     LL_APPEND(tcp_data->retransmission_queue, re_packet);
 }
 
-static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
+static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, tcp_seq ack_seq)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     if (ack_seq < tcp_data->SND_UNA || ack_seq > tcp_data->SND_NXT)
@@ -919,6 +924,9 @@ static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
         int payload_len = TCP_PAYLOAD_LEN(elt->packet);
         if (SEG_SEQ(elt->packet) + payload_len <= ack_seq)
         {
+            // cancel timer
+            mt_cancel_timer(&tcp_data->mt, RTX_TIMER_ID);
+
             // remove it from retransmission queue
             LL_DELETE(tcp_data->retransmission_queue, elt);
             // free related bytes in send buffer
@@ -950,7 +958,7 @@ static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
         if (tcp_data->is_first_measurement)
         {
             tcp_data->SRTT = R;
-            tcp_data->RTTVAR = R >> 2;
+            tcp_data->RTTVAR = R >> 1;
             tcp_data->is_first_measurement = false;
         }
         else
@@ -961,6 +969,9 @@ static void sweep_away_acked_packets(chisocketentry_t *entry, tcp_seq ack_seq)
         }
         tcp_data->RTO = tcp_data->SRTT + MAX(G, K * tcp_data->RTTVAR);
     }
+
+    if (tcp_data->SND_UNA < tcp_data->SND_NXT)
+        set_retransmission_timer(si, entry);
 }
 
 static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry)
@@ -998,7 +1009,6 @@ void pst_callback_func(multi_timer_t *mt, single_timer_t *st, void *pst_args)
 
 void resend_packets(serverinfo_t *si, chisocketentry_t *entry)
 {
-    // TODO send wnd
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     retransmission_packet_t *re_queue = tcp_data->retransmission_queue;
     /* implement go-back-N */
