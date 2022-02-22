@@ -315,7 +315,7 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
     }
     else if (event == APPLICATION_RECEIVE)
     {
-        tcp_data->RCV_WND = circular_buffer_count(&tcp_data->recv);
+        tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
     }
     else if (event == APPLICATION_CLOSE)
     {
@@ -349,7 +349,7 @@ int chitcpd_tcp_state_handle_FIN_WAIT_1(serverinfo_t *si, chisocketentry_t *entr
     else if (event == APPLICATION_RECEIVE)
     {
         tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-        tcp_data->RCV_WND = circular_buffer_count(&tcp_data->recv);
+        tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
     }
     else if (event == TIMEOUT_RTX)
     {
@@ -376,7 +376,7 @@ int chitcpd_tcp_state_handle_FIN_WAIT_2(serverinfo_t *si, chisocketentry_t *entr
     else if (event == APPLICATION_RECEIVE)
     {
         tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-        tcp_data->RCV_WND = circular_buffer_count(&tcp_data->recv);
+        tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
     }
     else if (event == TIMEOUT_RTX)
     {
@@ -624,7 +624,7 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
     else if (entry->tcp_state == LAST_ACK)
     {
         tcp_data->SND_UNA = SEG_ACK(packet);
-        // ACK our FIN
+        // our FIN has been acked
         if (tcp_data->SND_UNA == tcp_data->SND_NXT)
         {
             chitcpd_update_tcp_state(si, entry, CLOSED);
