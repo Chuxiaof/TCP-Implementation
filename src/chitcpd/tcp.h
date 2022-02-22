@@ -148,7 +148,6 @@ typedef struct tcp_data
     /* Queue with out-of-order packets received from the network */
     out_of_order_packet_t *out_of_order_packets_list;
 
-
     /* Send sequence variables */
     uint32_t ISS;     /* Initial send sequence number */
     uint32_t SND_UNA; /* First byte sent but not acknowledged */

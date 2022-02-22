@@ -99,7 +99,8 @@
 #include <string.h>
 #include <time.h>
 
-#define SEGMENT_SUCCESS 1
+#define SEGMENT_FINISHED 1
+#define SEGMENT_KEEP 2
 #define SEGMENT_DROP -1
 
 #define MS_TO_NS(n) ((long)n * 1000000)
@@ -518,7 +519,7 @@ int listen_handler(serverinfo_t *si, chisocketentry_t *entry,
         assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
         assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
         tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-        return SEGMENT_SUCCESS;
+        return SEGMENT_FINISHED;
     }
 }
 
@@ -570,7 +571,7 @@ int syn_sent_handler(serverinfo_t *si, chisocketentry_t *entry,
         // init recv buffer
         assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
         tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-        return SEGMENT_SUCCESS;
+        return SEGMENT_FINISHED;
     }
     return SEGMENT_DROP;
 }
@@ -591,7 +592,7 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
         return_header->ack = 1;
         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
         if (tcp_data->RCV_WND != 0)
-            return SEGMENT_SUCCESS;
+            return SEGMENT_FINISHED;
     }
 
     // second check SYN
@@ -658,11 +659,15 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
         set_retransmission_timer(si, entry);
 
     // used to denote whether we need to send a return packet
-    bool flag = false;
+    bool is_reply = false;
+    // (for out of order delivery) 
+    // used to denote whether we need to keep current packet
+    bool is_keep = false;
+
     // fourth process the segment text
-    /* out of order delivery */
     if (payload_len > 0)
     {
+        /* out of order delivery logic */
         if (SEG_SEQ(packet) == tcp_data->RCV_NXT)
         {
             uint8_t *payload_start = TCP_PAYLOAD_START(packet);
@@ -674,12 +679,6 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
             }
             tcp_data->RCV_NXT += bytes;
             tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-            // construct return packet
-
-            /*return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-            return_header->ack = 1;
-            return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-            flag = true;*/
 
             // check whether there are any contiguous segments in out-of-order list
             if (tcp_data->out_of_order_packets_list != NULL)
@@ -687,7 +686,6 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
                 tcp_packet_t *head_packet = tcp_data->out_of_order_packets_list->packet;
                 if (SEG_SEQ(head_packet) == tcp_data->RCV_NXT)
                 {
-                    chilog(ERROR, "checkpoint 1");
                     pthread_mutex_lock(&tcp_data->lock_pending_packets);
                     chitcp_packet_list_append(&tcp_data->pending_packets, head_packet);
                     pthread_mutex_unlock(&tcp_data->lock_pending_packets);
@@ -701,11 +699,12 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
         {
             out_of_order_packet_t *o_packet = out_of_order_packet_create(packet);
             LL_INSERT_INORDER(tcp_data->out_of_order_packets_list, o_packet, out_of_order_packet_cmp);
+            is_keep = true;
         }
         return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
         return_header->ack = 1;
         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-        flag = true;
+        is_reply = true;
     }
 
     // fifth check FIN
@@ -731,12 +730,15 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
             chitcpd_update_tcp_state(si, entry, CLOSED);
         }
 
-        flag = true;
+        is_reply = true;
     }
 
-    if (flag)
-        return SEGMENT_SUCCESS;
-    return SEGMENT_DROP;
+    if (is_reply && is_keep)
+        return SEGMENT_KEEP;
+    else if (is_reply)
+        return SEGMENT_FINISHED;
+    else
+        return SEGMENT_DROP;
 }
 
 static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
@@ -781,8 +783,9 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         rv = other_states_handler(si, entry, packet, return_packet);
     }
 
-    if (rv == SEGMENT_SUCCESS)
+    if (rv != SEGMENT_DROP)
     {
+        // in this case need to send a reply packet
         tcphdr_t *return_header = TCP_PACKET_HEADER(return_packet);
         // add window size
         return_header->win = chitcp_htons(tcp_data->RCV_WND);
@@ -806,7 +809,8 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
     if (entry->tcp_state == FIN_WAIT_1 || entry->tcp_state == CLOSE_WAIT)
         send_fin(si, entry);
 
-    deep_free_packet(packet);
+    if (rv != SEGMENT_KEEP)
+        deep_free_packet(packet);
 }
 
 int send_data(serverinfo_t *si, chisocketentry_t *entry)
@@ -1065,234 +1069,3 @@ static int out_of_order_packet_cmp(out_of_order_packet_t *x, out_of_order_packet
         return 0;
     }
 }
-
-// static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
-// {
-//     // extract a packet from pending list
-//     tcp_packet_t *packet = NULL;
-//     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-//     if (tcp_data->pending_packets)
-//     {
-//         pthread_mutex_lock(&tcp_data->lock_pending_packets);
-//         packet = tcp_data->pending_packets->packet;
-//         chitcp_packet_list_pop_head(&tcp_data->pending_packets);
-//         pthread_mutex_unlock(&tcp_data->lock_pending_packets);
-//     }
-//     tcphdr_t *header = TCP_PACKET_HEADER(packet);
-
-//     // construct the responding packet to be sent
-//     tcp_packet_t *return_packet = calloc(1, sizeof(tcp_packet_t));
-//     chitcpd_tcp_packet_create(entry, return_packet, NULL, 0);
-//     tcphdr_t *return_header = TCP_PACKET_HEADER(return_packet);
-
-//     // Only LISTEN and SYN_STATE should accept SYN packet
-//     if (header->syn)
-//     {
-//         if (!(entry->tcp_state == LISTEN || entry->tcp_state == SYN_SENT))
-//         {
-//             chilog(ERROR, "In %i state, SYN packet arrives.", entry->tcp_state);
-//             deep_free_packet(return_packet);
-//             deep_free_packet(packet);
-//             return;
-//         }
-//     }
-
-//     if (header->ack)
-//     {
-//         switch (entry->tcp_state)
-//         {
-//         case SYN_RCVD:
-//             if (SEG_ACK(packet) >= tcp_data->SND_UNA && SEG_ACK(packet) <= tcp_data->SND_NXT)
-//             {
-//                 tcp_data->SND_UNA = SEG_ACK(packet);
-//                 tcp_data->SND_WND = SEG_WND(packet);
-//                 chitcpd_update_tcp_state(si, entry, ESTABLISHED);
-//                 sweep_away_acked_packets(entry, SEG_ACK(packet));
-//                 mt_cancel_timer(&tcp_data->mt, RTX_TIMER_ID);
-//                 // reset timer
-//                 if (tcp_data->SND_UNA < tcp_data->SND_NXT)
-//                     set_retransmission_timer(si, entry);
-//             }
-//             else
-//             {
-//                 chilog(WARNING, "In SYN_RCVD state, the segment acknowledgement is unacceptable.");
-//             }
-//             deep_free_packet(return_packet);
-//             deep_free_packet(packet);
-//             return;
-//         case SYN_SENT:
-//             if (SEG_ACK(packet) <= tcp_data->ISS || SEG_ACK(packet) > tcp_data->SND_NXT)
-//             {
-//                 chilog(WARNING, "In SYN_SENT state, package has invalid ACK.");
-//                 deep_free_packet(return_packet);
-//                 deep_free_packet(packet);
-//                 return;
-//             }
-//             break;
-//         case ESTABLISHED:
-//         case FIN_WAIT_1:
-//             if (tcp_data->SND_UNA > SEG_ACK(packet))
-//             {
-//                 // ignore
-//                 deep_free_packet(return_packet);
-//                 deep_free_packet(packet);
-//                 return;
-//             }
-//             if (tcp_data->SND_UNA <= SEG_ACK(packet) && SEG_ACK(packet) <= tcp_data->SND_NXT)
-//             {
-//                 tcp_data->SND_UNA = SEG_ACK(packet);
-//                 tcp_data->SND_WND = SEG_WND(packet); // update the send window
-
-//                 sweep_away_acked_packets(entry, SEG_ACK(packet));
-//                 mt_cancel_timer(&tcp_data->mt, RTX_TIMER_ID);
-//                 // reset timer
-//                 if (tcp_data->SND_UNA < tcp_data->SND_NXT)
-//                     set_retransmission_timer(si, entry);
-
-//                 // write packet payload into recv buffer(disable blocking)
-//                 uint8_t *payload_start = TCP_PAYLOAD_START(packet);
-//                 uint32_t len = TCP_PAYLOAD_LEN(packet);
-//                 if (len > 0)
-//                 {
-//                     len = MIN(len, circular_buffer_available(&tcp_data->recv));
-//                     uint32_t bytes = circular_buffer_write(&tcp_data->recv, payload_start, len, false);
-//                     tcp_data->RCV_NXT += bytes;
-//                     tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-//                     // construct return packet
-//                     return_header->ack = 1;
-//                     return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-//                     return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-//                     return_header->win = chitcp_htons(tcp_data->RCV_WND);
-//                     chitcpd_send_tcp_packet(si, entry, return_packet);
-//                 }
-
-//                 send_data(si, entry);
-//                 send_fin(si, entry);
-
-//                 if (entry->tcp_state == FIN_WAIT_1 && tcp_data->SND_UNA == tcp_data->SND_NXT)
-//                 {
-//                     chitcpd_update_tcp_state(si, entry, FIN_WAIT_2);
-//                 }
-
-//                 deep_free_packet(return_packet);
-//                 deep_free_packet(packet);
-//                 return;
-//             }
-//         case LAST_ACK:
-//             if (tcp_data->SND_UNA <= SEG_ACK(packet))
-//             {
-//                 sweep_away_acked_packets(entry, SEG_ACK(packet));
-//                 mt_cancel_timer(&tcp_data->mt, RTX_TIMER_ID);
-//                 // reset timer
-//                 if (tcp_data->SND_UNA < tcp_data->SND_NXT)
-//                     set_retransmission_timer(si, entry);
-//                 chitcpd_update_tcp_state(si, entry, CLOSED);
-//             }
-//             deep_free_packet(return_packet);
-//             deep_free_packet(packet);
-//             return;
-//         case CLOSING:
-//             if (tcp_data->SND_UNA <= SEG_ACK(packet))
-//             {
-//                 chitcpd_update_tcp_state(si, entry, TIME_WAIT);
-//                 chitcpd_update_tcp_state(si, entry, CLOSED);
-//             }
-//             deep_free_packet(return_packet);
-//             deep_free_packet(packet);
-//             return;
-//         default:
-//             chilog(ERROR, "In %i state, ACK packet arrives.", entry->tcp_state);
-//             deep_free_packet(return_packet);
-//             deep_free_packet(packet);
-//             return;
-//         }
-//     }
-
-//     if (header->syn)
-//     {
-//         tcp_data->RCV_NXT = SEG_SEQ(packet) + 1;
-//         tcp_data->IRS = SEG_SEQ(packet);
-//         return_header->ack = 1;
-//         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-
-//         if (entry->tcp_state == LISTEN)
-//         {
-//             return_header->syn = 1; // this is a SYN packet, needs to be added into retransmission queue
-//             // set the initial sequence number randomly
-//             tcp_data->ISS = (rand() % 1000 + 1) * 100000;
-//             return_header->seq = chitcp_htonl(tcp_data->ISS);
-//             tcp_data->SND_NXT = tcp_data->ISS + 1;
-//             tcp_data->SND_UNA = tcp_data->ISS;
-//             chitcpd_update_tcp_state(si, entry, SYN_RCVD);
-//             // set send and recv buffer for server side
-//             assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
-//             assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
-//             tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-//             return_header->win = chitcp_htons(tcp_data->RCV_WND);
-//             append_retransmission_queue(entry, return_packet);
-//             chitcpd_send_tcp_packet(si, entry, return_packet);
-
-//             set_retransmission_timer(si, entry);
-//         }
-//         else
-//         {
-//             // SYN_SENT
-//             // set receive buffer for client side
-//             // Pure ack message, no need to get into retransmission queue
-//             assert(circular_buffer_set_seq_initial(&tcp_data->recv, tcp_data->RCV_NXT) == CHITCP_OK);
-//             tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
-//             if (header->ack)
-//             {
-//                 tcp_data->SND_UNA = SEG_ACK(packet);
-//             }
-//             if (tcp_data->SND_UNA > tcp_data->ISS)
-//             {
-//                 return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-//                 chitcpd_update_tcp_state(si, entry, ESTABLISHED);
-//             }
-//             else
-//             {
-//                 return_header->syn = 1;
-//                 return_header->seq = htonl(tcp_data->ISS);
-//                 chitcpd_update_tcp_state(si, entry, SYN_RCVD);
-//             }
-//             tcp_data->SND_WND = SEG_WND(packet);
-//             return_header->win = chitcp_htons(tcp_data->RCV_WND);
-//             chitcpd_send_tcp_packet(si, entry, return_packet);
-//             deep_free_packet(return_packet);
-//         }
-//         deep_free_packet(packet);
-//         return;
-//     }
-
-//     if (header->fin)
-//     {
-//         tcp_state_t state = entry->tcp_state;
-
-//         if (state != ESTABLISHED && state != FIN_WAIT_1 && state != FIN_WAIT_2)
-//         {
-//             chilog(ERROR, "In %i state, unexpected FIN packet arrives.", entry->tcp_state);
-//             deep_free_packet(return_packet);
-//             deep_free_packet(packet);
-//             return;
-//         }
-
-//         tcp_data->RCV_NXT = SEG_SEQ(packet) + 1;
-//         return_header->ack = 1;
-//         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
-//         return_header->seq = chitcp_htonl(tcp_data->SND_NXT);
-//         chitcpd_send_tcp_packet(si, entry, return_packet);
-
-//         tcp_state_t new_state = state == ESTABLISHED ? CLOSE_WAIT : state == FIN_WAIT_1 ? CLOSING
-//                                                                                         : TIME_WAIT;
-//         chitcpd_update_tcp_state(si, entry, new_state);
-//         if (new_state == TIME_WAIT)
-//         {
-//             chitcpd_update_tcp_state(si, entry, CLOSED);
-//         }
-
-//         deep_free_packet(return_packet);
-//         deep_free_packet(packet);
-//         return;
-//     }
-// }
