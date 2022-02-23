@@ -118,12 +118,14 @@
 
 #define PROBE_LENGTH 1
 
+/* arguments for retransmission timer callback function */
 typedef struct rtx_args
 {
     serverinfo_t *si;
     chisocketentry_t *entry;
 } rtx_args_t;
 
+/* arguments for persist timer callback function */
 typedef struct pst_args
 {
     serverinfo_t *si;
@@ -138,54 +140,170 @@ typedef struct pst_args
 static void deep_free_packet(tcp_packet_t *packet);
 
 /**
+ * @brief a helper function that handle the arrival of new packet
+ *
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ */
+static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry);
+
+/**
+ * @brief helper function of chitcpd_tcp_handle_packet() that helps dealing with the packet arrival event when tcp state is LISTEN
+ *
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ * @param packet the arrival packet
+ * @param return_packet packet to be sent to another side of tcp connection
+ * @return int SEGMENT_FINISHED: send the return packet and free arrival packet; SEGMENT_KEEP: send the return packet and keep arrival packet; SEGMENT_DROP: discard the return packet and arrival packet
+ */
+static int listen_handler(serverinfo_t *si, chisocketentry_t *entry,
+                          tcp_packet_t *packet, tcp_packet_t *return_packet);
+
+/**
+ * @brief helper function of chitcpd_tcp_handle_packet() that helps dealing with the packet arrival event when tcp state is SYN_SENT
+ * 
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ * @param packet the arrival packet
+ * @param return_packet packet to be sent to another side of tcp connection
+ * @return int SEGMENT_FINISHED: send the return packet and free arrival packet; SEGMENT_KEEP: send the return packet and keep arrival packet; SEGMENT_DROP: discard the return packet and arrival packet
+ */
+static int syn_sent_handler(serverinfo_t *si, chisocketentry_t *entry,
+                            tcp_packet_t *packet, tcp_packet_t *return_packet);
+
+/**
+ * @brief helper function of chitcpd_tcp_handle_packet() that helps dealing with the packet arrival event when tcp state are not LISTEN or SYN_SENT
+ * 
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ * @param packet the arrival packet
+ * @param return_packet packet to be sent to another side of tcp connection
+ * @return int SEGMENT_FINISHED: send the return packet and free arrival packet; SEGMENT_KEEP: send the return packet and keep arrival packet; SEGMENT_DROP: discard the return packet and arrival packet
+ */
+static int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
+                                tcp_packet_t *packet, tcp_packet_t *return_packet);
+
+/**
  * @brief segment long message, keep sending until send buffer is empty
  *        or exhausting SND.WND
  *
- * @param si
- * @param entry
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
  * @return int, denoting success or not
  */
-int send_data(serverinfo_t *si, chisocketentry_t *entry);
+static int send_data(serverinfo_t *si, chisocketentry_t *entry);
 
 /**
  * @brief for delayed sending of fin message
  *
- * @param si
- * @param entry
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
  */
-void send_fin(serverinfo_t *si, chisocketentry_t *entry);
+static void send_fin(serverinfo_t *si, chisocketentry_t *entry);
+
+
 
 /**
- * @brief a helper function that handle the arrival of new packet
+ * @brief add the packet to the retransmission queue
  *
- * @param si
- * @param entry
+ * @param entry particular socket entry for this tcp connection
+ * @param packet packet to be added
  */
-static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry);
-
 static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *packet);
 
+/**
+ * @brief creat a retransmission packet according to the given ordinary packet
+ *
+ * @param packet ordinary packet to be wrapped into retransmission packet
+ * @param sent_time absolute time when this packet was sent by tcp
+ * @return retransmission_packet_t* pointer to the created retransmission packet
+ */
 static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packet, struct timespec sent_time);
 
+/**
+ * @brief deep free retransmission packet
+ *
+ * @param re_packet retransmission packet to be freed
+ */
 static void retransmission_packet_free(retransmission_packet_t *re_packet);
 
+/**
+ * @brief Given the most recent acknowledge number, remove packets out of retransmission queue, take corresponding bytes out of send buffer,
+ *        cancel/reset retransmission timer if necessary, update SRTT, RTTVAR and RTO according to RFC
+ *
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ * @param ack_seq acknowledge number of the arrival packet
+ */
 static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, tcp_seq ack_seq);
 
+/**
+ * @brief activate the retransmission timer
+ *
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ */
 static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry);
 
+/**
+ * @brief activate the persist timer
+ *
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ */
 static void set_persist_timer(serverinfo_t *si, chisocketentry_t *entry);
 
+/**
+ * @brief resend all the packets in retransmission queue
+ *
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ */
 static void resend_packets(serverinfo_t *si, chisocketentry_t *entry);
 
+/**
+ * @brief when persist timer times out, send a probe if there's data to send, reset the timer
+ *
+ * @param si struct that stores the server global infomation
+ * @param entry particular socket entry for this tcp connection
+ */
 static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry);
 
-// TODO: rtx_args needs to be freed
+/**
+ * @brief callback function when retransmission timer times out
+ *
+ * @param mt pointer to multitimer
+ * @param st pointer to particular single timer
+ * @param rtx_args arguments for this callback function
+ */
 void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args);
 
+/**
+ * @brief callback function when persist timer times out
+ *
+ * @param mt pointer to multitimer
+ * @param st pointer to particular single timer
+ * @param pst_args arguments for this callback function
+ */
 void pst_callback_func(multi_timer_t *mt, single_timer_t *st, void *pst_args);
 
+/**
+ * @brief creat a out-of-order packet according to the given ordinary packet
+ *
+ * @param packet ordinary packet to be wrapped up
+ * @return out_of_order_packet_t* pointer to the created out-of-order packet
+ */
 static out_of_order_packet_t *out_of_order_packet_create(tcp_packet_t *packet);
 
+/**
+ * @brief comparison function to be used by LL_INSERT_INORDER()
+ *
+ * @param x pointer to out-of-order packet to be compared
+ * @param y pointer to out-of-order packet to be compared
+ * @return negative int: the first item should sort before the second item;
+ *         zero: the first item should sort equal to the second item;
+ *         positive int: the first item should sort after the second item.
+ */
 static int out_of_order_packet_cmp(out_of_order_packet_t *x, out_of_order_packet_t *y);
 
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
@@ -226,24 +344,24 @@ int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, t
     {
         tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
 
-        /*prepare and send SYN message*/
+        /* prepare and send SYN message */
         tcp_packet_t *packet = calloc(1, sizeof(tcp_packet_t));
         chitcpd_tcp_packet_create(entry, packet, NULL, 0);
         tcphdr_t *header = TCP_PACKET_HEADER(packet);
-
+        /* set the initial sequence number randomly */
         srand(time(NULL));
-        tcp_data->ISS = (rand() % 1000 + 1) * 100000; // set the initial sequence number randomly
-        header->syn = 1;                              // this is a SYN packet
+        tcp_data->ISS = (rand() % 1000 + 1) * 100000;
+
+        header->syn = 1;
         header->seq = chitcp_htonl(tcp_data->ISS);
         tcp_data->SND_UNA = tcp_data->ISS;
         tcp_data->SND_NXT = tcp_data->ISS + 1;
-        // set send buffer for client side
+        /* set send buffer for client side */
         assert(circular_buffer_set_seq_initial(&tcp_data->send, tcp_data->SND_NXT) == CHITCP_OK);
-        // send package and update state
+
         append_retransmission_queue(entry, packet);
         chitcpd_send_tcp_packet(si, entry, packet);
         set_retransmission_timer(si, entry);
-        // update state
         chitcpd_update_tcp_state(si, entry, SYN_SENT);
     }
     else if (event == CLEANUP)
@@ -319,7 +437,7 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
     }
     else if (event == APPLICATION_CLOSE)
     {
-        // in any case, enter FIN-WAIT-1 state
+        /* in any case, enter FIN-WAIT-1 state */
         chitcpd_update_tcp_state(si, entry, FIN_WAIT_1);
         tcp_data->closing = true;
         send_fin(si, entry);
@@ -471,6 +589,8 @@ int chitcpd_tcp_state_handle_LAST_ACK(serverinfo_t *si, chisocketentry_t *entry,
 /*                                                           */
 /*     Any additional functions you need should go here      */
 /*                                                           */
+
+/* see function declaration */
 static void deep_free_packet(tcp_packet_t *packet)
 {
     if (packet != NULL)
@@ -480,14 +600,16 @@ static void deep_free_packet(tcp_packet_t *packet)
     free(packet);
 }
 
+/* see function declaration */
 static void retransmission_packet_free(retransmission_packet_t *re_packet)
 {
     deep_free_packet(re_packet->packet);
     free(re_packet);
 }
 
-int listen_handler(serverinfo_t *si, chisocketentry_t *entry,
-                   tcp_packet_t *packet, tcp_packet_t *return_packet)
+/* see function declaration */
+static int listen_handler(serverinfo_t *si, chisocketentry_t *entry,
+                          tcp_packet_t *packet, tcp_packet_t *return_packet)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     tcphdr_t *header = TCP_PACKET_HEADER(packet);
@@ -523,8 +645,9 @@ int listen_handler(serverinfo_t *si, chisocketentry_t *entry,
     }
 }
 
-int syn_sent_handler(serverinfo_t *si, chisocketentry_t *entry,
-                     tcp_packet_t *packet, tcp_packet_t *return_packet)
+/* see function declaration */
+static int syn_sent_handler(serverinfo_t *si, chisocketentry_t *entry,
+                            tcp_packet_t *packet, tcp_packet_t *return_packet)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     tcphdr_t *header = TCP_PACKET_HEADER(packet);
@@ -572,8 +695,9 @@ int syn_sent_handler(serverinfo_t *si, chisocketentry_t *entry,
     return SEGMENT_DROP;
 }
 
-int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
-                         tcp_packet_t *packet, tcp_packet_t *return_packet)
+/* see function declaration */
+static int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
+                                tcp_packet_t *packet, tcp_packet_t *return_packet)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     tcphdr_t *header = TCP_PACKET_HEADER(packet);
@@ -653,7 +777,7 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
 
     // used to denote whether we need to send a return packet
     bool is_reply = false;
-    // (for out of order delivery) 
+    // (for out of order delivery)
     // used to denote whether we need to keep current packet
     bool is_keep = false;
 
@@ -694,15 +818,18 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
             out_of_order_packet_t *elt;
             // eliminate duplicate packets
             bool is_duplicate = false;
-            LL_FOREACH(tcp_data->out_of_order_packets_list, elt) {
-                if (out_of_order_packet_cmp(o_packet, elt) == 0) {
+            LL_FOREACH(tcp_data->out_of_order_packets_list, elt)
+            {
+                if (out_of_order_packet_cmp(o_packet, elt) == 0)
+                {
                     is_duplicate = true;
                     break;
                 }
             }
-            if (!is_duplicate) {
-                LL_INSERT_INORDER(tcp_data->out_of_order_packets_list, o_packet, 
-                    out_of_order_packet_cmp);
+            if (!is_duplicate)
+            {
+                LL_INSERT_INORDER(tcp_data->out_of_order_packets_list, o_packet,
+                                  out_of_order_packet_cmp);
             }
             is_keep = true;
         }
@@ -746,6 +873,7 @@ int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
         return SEGMENT_DROP;
 }
 
+/* see function declaration */
 static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
 {
     // extract a packet from pending list
@@ -818,7 +946,8 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         deep_free_packet(packet);
 }
 
-int send_data(serverinfo_t *si, chisocketentry_t *entry)
+/* see function declaration */
+static int send_data(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     if (tcp_data->SND_WND < (tcp_data->SND_NXT - tcp_data->SND_UNA))
@@ -828,7 +957,6 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry)
     uint32_t cnt_to_send = circular_buffer_next(&tcp_data->send) - tcp_data->SND_NXT;
     /* real_wnd: actually how many bytes can we send right now */
     uint16_t real_wnd = tcp_data->SND_WND - (tcp_data->SND_NXT - tcp_data->SND_UNA);
-    // chilog(ERROR, "SND_WND: %i, circular_buffer_next: %i, cnt_to_send: %i, real_wnd: %i", tcp_data->SND_WND, circular_buffer_next(&tcp_data->send), cnt_to_send, real_wnd);
     while (cnt_to_send > 0 && real_wnd > 0)
     {
         // extract data from send buffer
@@ -862,7 +990,8 @@ int send_data(serverinfo_t *si, chisocketentry_t *entry)
     return CHITCP_OK;
 }
 
-void send_fin(serverinfo_t *si, chisocketentry_t *entry)
+/* see function declaration */
+static void send_fin(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     if (tcp_data->closing && circular_buffer_count(&tcp_data->send) == 0)
@@ -888,6 +1017,7 @@ void send_fin(serverinfo_t *si, chisocketentry_t *entry)
     }
 }
 
+/* see function declaration */
 static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packet, struct timespec sent_time)
 {
     retransmission_packet_t *re_packet = calloc(1, sizeof(retransmission_packet_t));
@@ -898,6 +1028,7 @@ static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packe
     return re_packet;
 }
 
+/* see function declaration */
 static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *packet)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -909,6 +1040,7 @@ static void append_retransmission_queue(chisocketentry_t *entry, tcp_packet_t *p
     LL_APPEND(tcp_data->retransmission_queue, re_packet);
 }
 
+/* see function declaration */
 static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, tcp_seq ack_seq)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -974,6 +1106,7 @@ static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, 
         set_retransmission_timer(si, entry);
 }
 
+/* see function declaration */
 static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -985,6 +1118,7 @@ static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry)
         free(rtx_args);
 }
 
+/* see function declaration */
 static void set_persist_timer(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -995,19 +1129,22 @@ static void set_persist_timer(serverinfo_t *si, chisocketentry_t *entry)
         free(pst_args);
 }
 
+/* see function declaration */
 void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args)
 {
     rtx_args_t *args = (rtx_args_t *)rtx_args;
     chitcpd_timeout(args->si, args->entry, RETRANSMISSION);
 }
 
+/* see function declaration */
 void pst_callback_func(multi_timer_t *mt, single_timer_t *st, void *pst_args)
 {
     pst_args_t *args = (pst_args_t *)pst_args;
     chitcpd_timeout(args->si, args->entry, PERSIST);
 }
 
-void resend_packets(serverinfo_t *si, chisocketentry_t *entry)
+/* see function declaration */
+static void resend_packets(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
     retransmission_packet_t *re_queue = tcp_data->retransmission_queue;
@@ -1026,6 +1163,7 @@ void resend_packets(serverinfo_t *si, chisocketentry_t *entry)
     set_retransmission_timer(si, entry);
 }
 
+/* see function declaration */
 static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -1057,6 +1195,7 @@ static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
     set_persist_timer(si, entry);
 }
 
+/* see function declaration */
 static out_of_order_packet_t *out_of_order_packet_create(tcp_packet_t *packet)
 {
     out_of_order_packet_t *o_packet = calloc(1, sizeof(out_of_order_packet_t));
@@ -1064,6 +1203,7 @@ static out_of_order_packet_t *out_of_order_packet_create(tcp_packet_t *packet)
     return o_packet;
 }
 
+/* see function declaration */
 static int out_of_order_packet_cmp(out_of_order_packet_t *x, out_of_order_packet_t *y)
 {
     if (SEG_SEQ(x->packet) < SEG_SEQ(y->packet))
