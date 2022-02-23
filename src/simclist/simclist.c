@@ -26,12 +26,12 @@
 #include <errno.h>          /* for setting errno */
 #include <sys/types.h>
 #ifndef _WIN32
-    /* not in Windows! */
+/* not in Windows! */
 #   include <unistd.h>
 #   include <stdint.h>
 #endif
 #ifndef SIMCLIST_NO_DUMPRESTORE
-    /* includes for dump/restore */
+/* includes for dump/restore */
 #   include <time.h>
 #   include <sys/uio.h>     /* for READ_ERRCHECK() and write() */
 #   include <fcntl.h>       /* for open() etc */
@@ -55,7 +55,8 @@
 
 #if defined(_MSC_VER) || defined(__MINGW32__)
 /* provide gettimeofday() missing in Windows */
-int gettimeofday(struct timeval *tp, void *tzp) {
+int gettimeofday(struct timeval *tp, void *tzp)
+{
     DWORD t;
 
     /* XSI says: "If tzp is not a null pointer, the behavior is unspecified" */
@@ -206,8 +207,8 @@ static int list_attrOk(const list_t *restrict l);
 
 /* do not inline, this is recursive */
 static void list_sort_quicksort(list_t *restrict l, int versus,
-        unsigned int first, struct list_entry_s *fel,
-        unsigned int last, struct list_entry_s *lel);
+                                unsigned int first, struct list_entry_s *fel,
+                                unsigned int last, struct list_entry_s *lel);
 
 static inline void list_sort_selectionsort(list_t *restrict l, int versus,
         unsigned int first, struct list_entry_s *fel,
@@ -243,12 +244,14 @@ static inline struct list_entry_s *list_findpos(const list_t *restrict l, int po
 static unsigned random_seed = 0;
 
 /* use local RNG */
-static inline void seed_random(void) {
+static inline void seed_random(void)
+{
     if (random_seed == 0)
         random_seed = (unsigned)getpid() ^ (unsigned)time(NULL);
 }
 
-static inline long get_random(void) {
+static inline long get_random(void)
+{
     random_seed = (1664525 * random_seed + 1013904223);
     return random_seed;
 }
@@ -261,7 +264,8 @@ static inline long get_random(void) {
 
 
 /* list initialization */
-int list_init(list_t *restrict l) {
+int list_init(list_t *restrict l)
+{
     if (l == NULL) return -1;
 
     seed_random();
@@ -297,7 +301,8 @@ int list_init(list_t *restrict l) {
     return 0;
 }
 
-void list_destroy(list_t *restrict l) {
+void list_destroy(list_t *restrict l)
+{
     unsigned int i;
 
     list_clear(l);
@@ -309,7 +314,8 @@ void list_destroy(list_t *restrict l) {
     free(l->tail_sentinel);
 }
 
-int list_attributes_setdefaults(list_t *restrict l) {
+int list_attributes_setdefaults(list_t *restrict l)
+{
     l->attrs.comparator = NULL;
     l->attrs.seeker = NULL;
 
@@ -329,7 +335,8 @@ int list_attributes_setdefaults(list_t *restrict l) {
 }
 
 /* setting list properties */
-int list_attributes_comparator(list_t *restrict l, element_comparator comparator_fun) {
+int list_attributes_comparator(list_t *restrict l, element_comparator comparator_fun)
+{
     if (l == NULL) return -1;
 
     l->attrs.comparator = comparator_fun;
@@ -339,7 +346,8 @@ int list_attributes_comparator(list_t *restrict l, element_comparator comparator
     return 0;
 }
 
-int list_attributes_seeker(list_t *restrict l, element_seeker seeker_fun) {
+int list_attributes_seeker(list_t *restrict l, element_seeker seeker_fun)
+{
     if (l == NULL) return -1;
 
     l->attrs.seeker = seeker_fun;
@@ -348,7 +356,8 @@ int list_attributes_seeker(list_t *restrict l, element_seeker seeker_fun) {
     return 0;
 }
 
-int list_attributes_copy(list_t *restrict l, element_meter metric_fun, int copy_data) {
+int list_attributes_copy(list_t *restrict l, element_meter metric_fun, int copy_data)
+{
     if (l == NULL || (metric_fun == NULL && copy_data != 0)) return -1;
 
     l->attrs.meter = metric_fun;
@@ -359,7 +368,8 @@ int list_attributes_copy(list_t *restrict l, element_meter metric_fun, int copy_
     return 0;
 }
 
-int list_attributes_hash_computer(list_t *restrict l, element_hash_computer hash_computer_fun) {
+int list_attributes_hash_computer(list_t *restrict l, element_hash_computer hash_computer_fun)
+{
     if (l == NULL) return -1;
 
     l->attrs.hasher = hash_computer_fun;
@@ -367,7 +377,8 @@ int list_attributes_hash_computer(list_t *restrict l, element_hash_computer hash
     return 0;
 }
 
-int list_attributes_serializer(list_t *restrict l, element_serializer serializer_fun) {
+int list_attributes_serializer(list_t *restrict l, element_serializer serializer_fun)
+{
     if (l == NULL) return -1;
 
     l->attrs.serializer = serializer_fun;
@@ -375,7 +386,8 @@ int list_attributes_serializer(list_t *restrict l, element_serializer serializer
     return 0;
 }
 
-int list_attributes_unserializer(list_t *restrict l, element_unserializer unserializer_fun) {
+int list_attributes_unserializer(list_t *restrict l, element_unserializer unserializer_fun)
+{
     if (l == NULL) return -1;
 
     l->attrs.unserializer = unserializer_fun;
@@ -383,19 +395,23 @@ int list_attributes_unserializer(list_t *restrict l, element_unserializer unseri
     return 0;
 }
 
-int list_append(list_t *restrict l, const void *data) {
+int list_append(list_t *restrict l, const void *data)
+{
     return list_insert_at(l, data, l->numels);
 }
 
-int list_prepend(list_t *restrict l, const void *data) {
+int list_prepend(list_t *restrict l, const void *data)
+{
     return list_insert_at(l, data, 0);
 }
 
-void *list_fetch(list_t *restrict l) {
+void *list_fetch(list_t *restrict l)
+{
     return list_extract_at(l, 0);
 }
 
-void *list_get_at(const list_t *restrict l, unsigned int pos) {
+void *list_get_at(const list_t *restrict l, unsigned int pos)
+{
     struct list_entry_s *tmp;
 
     tmp = list_findpos(l, pos);
@@ -403,17 +419,20 @@ void *list_get_at(const list_t *restrict l, unsigned int pos) {
     return (tmp != NULL ? tmp->data : NULL);
 }
 
-void *list_get_max(const list_t *restrict l) {
+void *list_get_max(const list_t *restrict l)
+{
     return list_get_minmax(l, +1);
 }
 
-void *list_get_min(const list_t *restrict l) {
+void *list_get_min(const list_t *restrict l)
+{
     return list_get_minmax(l, -1);
 }
 
 /* REQUIRES {list->numels >= 1}
  * return the min (versus < 0) or max value (v > 0) in l */
-static void *list_get_minmax(const list_t *restrict l, int versus) {
+static void *list_get_minmax(const list_t *restrict l, int versus)
+{
     void *curminmax;
     struct list_entry_s *s;
 
@@ -430,7 +449,8 @@ static void *list_get_minmax(const list_t *restrict l, int versus) {
 }
 
 /* set tmp to point to element at index posstart in l */
-static inline struct list_entry_s *list_findpos(const list_t *restrict l, int posstart) {
+static inline struct list_entry_s *list_findpos(const list_t *restrict l, int posstart)
+{
     struct list_entry_s *ptr;
     float x;
     int i;
@@ -456,7 +476,8 @@ static inline struct list_entry_s *list_findpos(const list_t *restrict l, int po
     return ptr;
 }
 
-void *list_extract_at(list_t *restrict l, unsigned int pos) {
+void *list_extract_at(list_t *restrict l, unsigned int pos)
+{
     struct list_entry_s *tmp;
     void *data;
 
@@ -474,7 +495,8 @@ void *list_extract_at(list_t *restrict l, unsigned int pos) {
     return data;
 }
 
-int list_insert_at(list_t *restrict l, const void *data, unsigned int pos) {
+int list_insert_at(list_t *restrict l, const void *data, unsigned int pos)
+{
     struct list_entry_s *lent, *succ, *prec;
 
     if (l->iter_active || pos > l->numels) return -1;
@@ -523,23 +545,25 @@ int list_insert_at(list_t *restrict l, const void *data, unsigned int pos) {
     return 1;
 }
 
-int list_delete(list_t *restrict l, const void *data) {
-	int pos, r;
+int list_delete(list_t *restrict l, const void *data)
+{
+    int pos, r;
 
-	pos = list_locate(l, data);
-	if (pos < 0)
-		return -1;
+    pos = list_locate(l, data);
+    if (pos < 0)
+        return -1;
 
-	r = list_delete_at(l, pos);
-	if (r < 0)
-		return -1;
+    r = list_delete_at(l, pos);
+    if (r < 0)
+        return -1;
 
     assert(list_repOk(l));
 
-	return 0;
+    return 0;
 }
 
-int list_delete_at(list_t *restrict l, unsigned int pos) {
+int list_delete_at(list_t *restrict l, unsigned int pos)
+{
     struct list_entry_s *delendo;
 
 
@@ -557,7 +581,8 @@ int list_delete_at(list_t *restrict l, unsigned int pos) {
     return  0;
 }
 
-int list_delete_range(list_t *restrict l, unsigned int posstart, unsigned int posend) {
+int list_delete_range(list_t *restrict l, unsigned int posstart, unsigned int posend)
+{
     struct list_entry_s *lastvalid, *tmp, *tmp2;
     unsigned int numdel, midposafter, i;
     int movedx;
@@ -620,7 +645,8 @@ int list_delete_range(list_t *restrict l, unsigned int posstart, unsigned int po
     return numdel;
 }
 
-int list_clear(list_t *restrict l) {
+int list_clear(list_t *restrict l)
+{
     struct list_entry_s *s;
     unsigned int numels;
 
@@ -666,15 +692,18 @@ int list_clear(list_t *restrict l) {
     return numels;
 }
 
-unsigned int list_size(const list_t *restrict l) {
+unsigned int list_size(const list_t *restrict l)
+{
     return l->numels;
 }
 
-int list_empty(const list_t *restrict l) {
+int list_empty(const list_t *restrict l)
+{
     return (l->numels == 0);
 }
 
-int list_locate(const list_t *restrict l, const void *data) {
+int list_locate(const list_t *restrict l, const void *data)
+{
     struct list_entry_s *el;
     int pos = 0;
 
@@ -694,7 +723,8 @@ int list_locate(const list_t *restrict l, const void *data) {
     return pos;
 }
 
-void *list_seek(list_t *restrict l, const void *indicator) {
+void *list_seek(list_t *restrict l, const void *indicator)
+{
     const struct list_entry_s *iter;
 
     if (l->attrs.seeker == NULL) return NULL;
@@ -706,11 +736,13 @@ void *list_seek(list_t *restrict l, const void *indicator) {
     return NULL;
 }
 
-int list_contains(const list_t *restrict l, const void *data) {
+int list_contains(const list_t *restrict l, const void *data)
+{
     return (list_locate(l, data) >= 0);
 }
 
-int list_concat(const list_t *l1, const list_t *l2, list_t *restrict dest) {
+int list_concat(const list_t *l1, const list_t *l2, list_t *restrict dest)
+{
     struct list_entry_s *el, *srcel;
     unsigned int cnt;
     int err;
@@ -763,7 +795,8 @@ int list_concat(const list_t *l1, const list_t *l2, list_t *restrict dest) {
     return 0;
 }
 
-int list_sort(list_t *restrict l, int versus) {
+int list_sort(list_t *restrict l, int versus)
+{
     if (l->iter_active || l->attrs.comparator == NULL) /* cannot modify list in the middle of an iteration */
         return -1;
 
@@ -782,7 +815,8 @@ struct list_sort_wrappedparams {
     struct list_entry_s *fel, *lel;
 };
 
-static void *list_sort_quicksort_threadwrapper(void *wrapped_params) {
+static void *list_sort_quicksort_threadwrapper(void *wrapped_params)
+{
     struct list_sort_wrappedparams *wp = (struct list_sort_wrappedparams *)wrapped_params;
     list_sort_quicksort(wp->l, wp->versus, wp->first, wp->fel, wp->last, wp->lel);
     free(wp);
@@ -793,7 +827,8 @@ static void *list_sort_quicksort_threadwrapper(void *wrapped_params) {
 
 static inline void list_sort_selectionsort(list_t *restrict l, int versus,
         unsigned int first, struct list_entry_s *fel,
-        unsigned int last, struct list_entry_s *lel) {
+        unsigned int last, struct list_entry_s *lel)
+{
     struct list_entry_s *cursor, *toswap, *firstunsorted;
     void *tmpdata;
 
@@ -813,8 +848,9 @@ static inline void list_sort_selectionsort(list_t *restrict l, int versus,
 }
 
 static void list_sort_quicksort(list_t *restrict l, int versus,
-        unsigned int first, struct list_entry_s *fel,
-        unsigned int last, struct list_entry_s *lel) {
+                                unsigned int first, struct list_entry_s *fel,
+                                unsigned int last, struct list_entry_s *lel)
+{
     unsigned int pivotid;
     unsigned int i;
     register struct list_entry_s *pivot;
@@ -935,7 +971,8 @@ static void list_sort_quicksort(list_t *restrict l, int versus,
 #endif
 }
 
-int list_iterator_start(list_t *restrict l) {
+int list_iterator_start(list_t *restrict l)
+{
     if (l->iter_active) return 0;
     l->iter_pos = 0;
     l->iter_active = 1;
@@ -943,7 +980,8 @@ int list_iterator_start(list_t *restrict l) {
     return 1;
 }
 
-void *list_iterator_next(list_t *restrict l) {
+void *list_iterator_next(list_t *restrict l)
+{
     void *toret;
 
     if (! l->iter_active) return NULL;
@@ -955,19 +993,22 @@ void *list_iterator_next(list_t *restrict l) {
     return toret;
 }
 
-int list_iterator_hasnext(const list_t *restrict l) {
+int list_iterator_hasnext(const list_t *restrict l)
+{
     if (! l->iter_active) return 0;
     return (l->iter_pos < l->numels);
 }
 
-int list_iterator_stop(list_t *restrict l) {
+int list_iterator_stop(list_t *restrict l)
+{
     if (! l->iter_active) return 0;
     l->iter_pos = 0;
     l->iter_active = 0;
     return 1;
 }
 
-int list_hash(const list_t *restrict l, list_hash_t *restrict hash) {
+int list_hash(const list_t *restrict l, list_hash_t *restrict hash)
+{
     struct list_entry_s *x;
     list_hash_t tmphash;
 
@@ -1004,7 +1045,8 @@ int list_hash(const list_t *restrict l, list_hash_t *restrict hash) {
 }
 
 #ifndef SIMCLIST_NO_DUMPRESTORE
-int list_dump_getinfo_filedescriptor(int fd, list_dump_info_t *restrict info) {
+int list_dump_getinfo_filedescriptor(int fd, list_dump_info_t *restrict info)
+{
     int32_t terminator_head, terminator_tail;
     uint32_t elemlen;
     off_t hop;
@@ -1068,7 +1110,8 @@ int list_dump_getinfo_filedescriptor(int fd, list_dump_info_t *restrict info) {
     return 0;
 }
 
-int list_dump_getinfo_file(const char *restrict filename, list_dump_info_t *restrict info) {
+int list_dump_getinfo_file(const char *restrict filename, list_dump_info_t *restrict info)
+{
     int fd, ret;
 
     fd = open(filename, O_RDONLY, 0);
@@ -1080,7 +1123,8 @@ int list_dump_getinfo_file(const char *restrict filename, list_dump_info_t *rest
     return ret;
 }
 
-int list_dump_filedescriptor(const list_t *restrict l, int fd, size_t *restrict len) {
+int list_dump_filedescriptor(const list_t *restrict l, int fd, size_t *restrict len)
+{
     struct list_entry_s *x;
     void *ser_buf;
     uint32_t bufsize;
@@ -1228,7 +1272,8 @@ int list_dump_filedescriptor(const list_t *restrict l, int fd, size_t *restrict 
     return 0;
 }
 
-int list_restore_filedescriptor(list_t *restrict l, int fd, size_t *restrict len) {
+int list_restore_filedescriptor(list_t *restrict l, int fd, size_t *restrict len)
+{
     struct list_dump_header_s header;
     unsigned long cnt;
     void *buf;
@@ -1352,7 +1397,8 @@ int list_restore_filedescriptor(list_t *restrict l, int fd, size_t *restrict len
     return 0;
 }
 
-int list_dump_file(const list_t *restrict l, const char *restrict filename, size_t *restrict len) {
+int list_dump_file(const list_t *restrict l, const char *restrict filename, size_t *restrict len)
+{
     int fd, oflag, mode;
 
 #ifndef _WIN32
@@ -1371,7 +1417,8 @@ int list_dump_file(const list_t *restrict l, const char *restrict filename, size
     return 0;
 }
 
-int list_restore_file(list_t *restrict l, const char *restrict filename, size_t *restrict len) {
+int list_restore_file(list_t *restrict l, const char *restrict filename, size_t *restrict len)
+{
     int fd;
 
     fd = open(filename, O_RDONLY, 0);
@@ -1385,7 +1432,8 @@ int list_restore_file(list_t *restrict l, const char *restrict filename, size_t 
 #endif /* ifndef SIMCLIST_NO_DUMPRESTORE */
 
 
-static int list_drop_elem(list_t *restrict l, struct list_entry_s *tmp, unsigned int pos) {
+static int list_drop_elem(list_t *restrict l, struct list_entry_s *tmp, unsigned int pos)
+{
     if (tmp == NULL) return -1;
 
     /* fix mid pointer. This is wrt the PRE situation */
@@ -1429,7 +1477,10 @@ SIMCLIST_NUMBER_COMPARATOR(uint64_t)
 SIMCLIST_NUMBER_COMPARATOR(float)
 SIMCLIST_NUMBER_COMPARATOR(double)
 
-int list_comparator_string(const void *a, const void *b) { return strcmp((const char *)b, (const char *)a); }
+int list_comparator_string(const void *a, const void *b)
+{
+    return strcmp((const char *)b, (const char *)a);
+}
 
 /* ready-made metric functions */
 #define SIMCLIST_METER(type)        size_t list_meter_##type(const void *el) { if (el) { /* kill compiler whinge */ } return sizeof(type); }
@@ -1447,7 +1498,10 @@ SIMCLIST_METER(uint64_t)
 SIMCLIST_METER(float)
 SIMCLIST_METER(double)
 
-size_t list_meter_string(const void *el) { return strlen((const char *)el) + 1; }
+size_t list_meter_string(const void *el)
+{
+    return strlen((const char *)el) + 1;
+}
 
 /* ready-made hashing functions */
 #define SIMCLIST_HASHCOMPUTER(type)    list_hash_t list_hashcomputer_##type(const void *el) { return (list_hash_t)(*(type *)el); }
@@ -1465,7 +1519,8 @@ SIMCLIST_HASHCOMPUTER(uint64_t)
 SIMCLIST_HASHCOMPUTER(float)
 SIMCLIST_HASHCOMPUTER(double)
 
-list_hash_t list_hashcomputer_string(const void *el) {
+list_hash_t list_hashcomputer_string(const void *el)
+{
     size_t l;
     list_hash_t hash = 123;
     const char *str = (const char *)el;
@@ -1482,18 +1537,19 @@ list_hash_t list_hashcomputer_string(const void *el) {
 
 
 #ifndef NDEBUG
-static int list_repOk(const list_t *restrict l) {
+static int list_repOk(const list_t *restrict l)
+{
     int ok, i;
     struct list_entry_s *s;
 
     ok = (l != NULL) && (
-            /* head/tail checks */
-            (l->head_sentinel != NULL && l->tail_sentinel != NULL) &&
-                (l->head_sentinel != l->tail_sentinel) && (l->head_sentinel->prev == NULL && l->tail_sentinel->next == NULL) &&
-            /* empty list */
-            (l->numels > 0 || (l->mid == NULL && l->head_sentinel->next == l->tail_sentinel && l->tail_sentinel->prev == l->head_sentinel)) &&
-            /* spare elements checks */
-            l->spareelsnum <= SIMCLIST_MAX_SPARE_ELEMS
+             /* head/tail checks */
+             (l->head_sentinel != NULL && l->tail_sentinel != NULL) &&
+             (l->head_sentinel != l->tail_sentinel) && (l->head_sentinel->prev == NULL && l->tail_sentinel->next == NULL) &&
+             /* empty list */
+             (l->numels > 0 || (l->mid == NULL && l->head_sentinel->next == l->tail_sentinel && l->tail_sentinel->prev == l->head_sentinel)) &&
+             /* spare elements checks */
+             l->spareelsnum <= SIMCLIST_MAX_SPARE_ELEMS
          );
 
     if (!ok) return 0;
@@ -1514,7 +1570,8 @@ static int list_repOk(const list_t *restrict l) {
     return ok;
 }
 
-static int list_attrOk(const list_t *restrict l) {
+static int list_attrOk(const list_t *restrict l)
+{
     int ok;
 
     ok = (l->attrs.copy_data == 0 || l->attrs.meter != NULL);

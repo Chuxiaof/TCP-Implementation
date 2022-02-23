@@ -18,16 +18,16 @@ int chitcp_tester_init(chitcp_tester_t* tester)
     tester->client = malloc(sizeof(chitcp_tester_peer_t));
 
     RET_ON_ERROR(pthread_mutex_init(&tester->server->lock_event, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_init(&tester->server->cv_event, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_mutex_init(&tester->server->lock_state, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_init(&tester->server->cv_state, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
 
     tester->server->event = TEST_EVENT_NONE;
@@ -36,16 +36,16 @@ int chitcp_tester_init(chitcp_tester_t* tester)
     tester->server->debug_handler_func = NULL;
 
     RET_ON_ERROR(pthread_mutex_init(&tester->client->lock_event, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_init(&tester->client->cv_event, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_mutex_init(&tester->client->lock_state, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_init(&tester->client->cv_state, NULL),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     tester->client->event = TEST_EVENT_NONE;
     tester->client->state = STATE_UNINITIALIZED;
@@ -59,28 +59,28 @@ int chitcp_tester_init(chitcp_tester_t* tester)
 int chitcp_tester_free(chitcp_tester_t* tester)
 {
     RET_ON_ERROR(pthread_mutex_destroy(&tester->server->lock_event),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_destroy(&tester->server->cv_event),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_mutex_destroy(&tester->server->lock_state),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_destroy(&tester->server->cv_state),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_mutex_destroy(&tester->client->lock_event),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_destroy(&tester->client->cv_event),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_mutex_destroy(&tester->client->lock_state),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     RET_ON_ERROR(pthread_cond_destroy(&tester->client->cv_state),
-            CHITCP_ESYNC);
+                 CHITCP_ESYNC);
 
     free(tester->server);
     free(tester->client);
@@ -97,8 +97,7 @@ int chitcp_tester_start(chitcp_tester_t* tester)
     tpta_server->tester = tester;
     tpta_server->peer = tester->server;
 
-    if (pthread_create(&tester->server->peer_thread, NULL, chitcp_tester_peer_thread_func, tpta_server) < 0)
-    {
+    if (pthread_create(&tester->server->peer_thread, NULL, chitcp_tester_peer_thread_func, tpta_server) < 0) {
         perror("Could not create tester's server thread");
         free(tpta_server);
         return CHITCP_ETHREAD;
@@ -109,8 +108,7 @@ int chitcp_tester_start(chitcp_tester_t* tester)
     tpta_client->tester = tester;
     tpta_client->peer = tester->client;
 
-    if (pthread_create(&tester->client->peer_thread, NULL, chitcp_tester_peer_thread_func, tpta_client) < 0)
-    {
+    if (pthread_create(&tester->client->peer_thread, NULL, chitcp_tester_peer_thread_func, tpta_client) < 0) {
         perror("Could not create tester's client thread");
         free(tpta_client);
         return CHITCP_ETHREAD;
@@ -162,8 +160,8 @@ int chitcp_tester_server_run_set(chitcp_tester_t* tester, chitcp_tester_runnable
 int chitcp_tester_server_wait_for_state(chitcp_tester_t* tester, tcp_state_t tcp_state)
 {
     if(tester->server->state == STATE_UNINITIALIZED ||
-       tester->server->state == STATE_INITIALIZED ||
-       tester->server->state == STATE_SERVER_LISTENING)
+            tester->server->state == STATE_INITIALIZED ||
+            tester->server->state == STATE_SERVER_LISTENING)
         chitcp_tester_peer_wait_for_state(tester->server, STATE_SERVER_READY);
 
     chitcpd_wait_for_state(tester->server->sockfd, tcp_state);
@@ -176,8 +174,8 @@ int chitcp_tester_server_wait_for_state(chitcp_tester_t* tester, tcp_state_t tcp
 int chitcp_tester_client_wait_for_state(chitcp_tester_t* tester, tcp_state_t tcp_state)
 {
     if(tester->client->state == STATE_UNINITIALIZED ||
-       tester->client->state == STATE_INITIALIZED ||
-       tester->client->state == STATE_CLIENT_CONNECTING)
+            tester->client->state == STATE_INITIALIZED ||
+            tester->client->state == STATE_CLIENT_CONNECTING)
         chitcp_tester_peer_wait_for_state(tester->client, STATE_CLIENT_READY);
 
     chitcpd_wait_for_state(tester->client->sockfd, tcp_state);

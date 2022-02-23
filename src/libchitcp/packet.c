@@ -103,8 +103,7 @@ int chitcp_packet_list_destroy(tcp_packet_list_t **pl)
 {
     tcp_packet_list_t *elt, *tmp;
 
-    DL_FOREACH_SAFE(*pl,elt,tmp)
-    {
+    DL_FOREACH_SAFE(*pl,elt,tmp) {
         free(elt->packet);
         DL_DELETE(*pl,elt);
         free(elt);

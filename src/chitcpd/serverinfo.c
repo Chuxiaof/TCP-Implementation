@@ -96,8 +96,7 @@ void chitcpd_update_tcp_state(serverinfo_t *si, chisocketentry_t *entry, tcp_sta
 
     pthread_mutex_unlock(&entry->lock_tcp_state);
 
-    if (newstate == CLOSED && entry->actpas_type == SOCKET_ACTIVE)
-    {
+    if (newstate == CLOSED && entry->actpas_type == SOCKET_ACTIVE) {
         active_chisocket_state_t *socket_state = &entry->socket_state.active;
 
         pthread_mutex_lock(&socket_state->lock_event);
@@ -114,13 +113,10 @@ void chitcpd_timeout(serverinfo_t *si, chisocketentry_t *entry, tcp_timer_type_t
 
     active_chisocket_state_t *socket_state = &entry->socket_state.active;
     pthread_mutex_lock(&socket_state->lock_event);
-    if (type == RETRANSMISSION)
-    {
+    if (type == RETRANSMISSION) {
         socket_state->flags.timeout_rtx = 1;
         chilog(MINIMAL, "[S%i] RETRANSMISSION TIMEOUT", SOCKET_NO(si, entry));
-    }
-    else if(type == PERSIST)
-    {
+    } else if(type == PERSIST) {
         socket_state->flags.timeout_pst = 1;
         chilog(MINIMAL, "[S%i] PERSIST TIMEOUT", SOCKET_NO(si, entry));
     }
@@ -137,10 +133,8 @@ int chitcpd_allocate_socket(serverinfo_t *si, int *socket_index)
     pthread_mutex_lock(&si->lock_chisocket_table);
 
     /* Find available slot in socket table */
-    for(int i=0; i < si->chisocket_table_size; i++)
-    {
-        if(si->chisocket_table[i].available)
-        {
+    for(int i=0; i < si->chisocket_table_size; i++) {
+        if(si->chisocket_table[i].available) {
             si->chisocket_table[i].available = FALSE;
 
             entry = &si->chisocket_table[i];
@@ -150,13 +144,10 @@ int chitcpd_allocate_socket(serverinfo_t *si, int *socket_index)
     }
     pthread_mutex_unlock(&si->lock_chisocket_table);
 
-    if(entry == NULL)
-    {
+    if(entry == NULL) {
         chilog(DEBUG, "Did not find an available socket slot.");
         ret = CHITCP_ESOCKET;
-    }
-    else
-    {
+    } else {
         chilog(DEBUG, "Assigned socket %i", *socket_index);
 
         entry->creator_thread = pthread_self();
@@ -182,17 +173,14 @@ int chitcpd_free_socket_entry(serverinfo_t *si, chisocketentry_t *entry)
     uint16_t port;
     struct sockaddr *addr;
 
-    if(entry->actpas_type == SOCKET_PASSIVE)
-    {
+    if(entry->actpas_type == SOCKET_PASSIVE) {
         chilog(TRACE, "Freeing entry for passive socket %i", SOCKET_NO(si, entry));
 
         passive_chisocket_state_t *socket_state = &entry->socket_state.passive;
         list_destroy(&socket_state->pending_connections);
         pthread_mutex_destroy(&socket_state->lock_pending_connections);
         pthread_cond_destroy(&socket_state->cv_pending_connections);
-    }
-    else if(entry->actpas_type == SOCKET_ACTIVE)
-    {
+    } else if(entry->actpas_type == SOCKET_ACTIVE) {
         chilog(TRACE, "Freeing entry for active socket %i", SOCKET_NO(si, entry));
 
         active_chisocket_state_t *socket_state = &entry->socket_state.active;
@@ -206,8 +194,7 @@ int chitcpd_free_socket_entry(serverinfo_t *si, chisocketentry_t *entry)
 
     withheld_tcp_packet_list_t *elt, *tmp;
 
-    DL_FOREACH_SAFE(entry->withheld_packets,elt,tmp)
-    {
+    DL_FOREACH_SAFE(entry->withheld_packets,elt,tmp) {
         DL_DELETE(entry->withheld_packets,elt);
         free(elt);
     }
@@ -216,8 +203,7 @@ int chitcpd_free_socket_entry(serverinfo_t *si, chisocketentry_t *entry)
     pthread_mutex_destroy(&entry->lock_tcp_state);
     pthread_cond_destroy(&entry->cv_tcp_state);
 
-    if (entry->debug_monitor != NULL)
-    {
+    if (entry->debug_monitor != NULL) {
         chitcpd_debug_detach_monitor(entry);
     }
     pthread_mutex_destroy(&entry->lock_debug_monitor);
@@ -241,10 +227,8 @@ int chitcpd_find_ephemeral_port(serverinfo_t *si)
 {
     uint16_t port = -1;
 
-    for(int i = si->ephemeral_port_start; i < si->port_table_size; i++)
-    {
-        if(si->port_table[i] == NULL)
-        {
+    for(int i = si->ephemeral_port_start; i < si->port_table_size; i++) {
+        if(si->port_table[i] == NULL) {
             port = i;
             break;
         }
@@ -266,8 +250,7 @@ chisocketentry_t* chitcpd_lookup_socket(serverinfo_t *si, struct sockaddr *local
 
     int max_nwildcards = 3;
     chisocketentry_t *match = NULL;
-    for(int i=0; i < si->chisocket_table_size; i++)
-    {
+    for(int i=0; i < si->chisocket_table_size; i++) {
         chisocketentry_t *this_entry = &si->chisocket_table[i];
         int nwildcards = 0;
 
@@ -287,13 +270,10 @@ chisocketentry_t* chitcpd_lookup_socket(serverinfo_t *si, struct sockaddr *local
 
         /* Check whether the local address matches, accounting for
          * the fact that the socket could have a wildcard local address */
-        if(chitcp_addr_is_any((struct sockaddr *) &this_entry->local_addr))
-        {
+        if(chitcp_addr_is_any((struct sockaddr *) &this_entry->local_addr)) {
             if(!chitcp_addr_is_any(local_addr))
                 nwildcards++;
-        }
-        else
-        {
+        } else {
             if(chitcp_addr_is_any(local_addr))
                 nwildcards++;
             else if (chitcp_addr_cmp(local_addr, (struct sockaddr *) &this_entry->local_addr))
@@ -301,13 +281,10 @@ chisocketentry_t* chitcpd_lookup_socket(serverinfo_t *si, struct sockaddr *local
         }
 
         /* Likewise for the remote address, but checking the ports too */
-        if(chitcp_addr_is_any((struct sockaddr *) &this_entry->remote_addr))
-        {
+        if(chitcp_addr_is_any((struct sockaddr *) &this_entry->remote_addr)) {
             if(!chitcp_addr_is_any(remote_addr))
                 nwildcards++;
-        }
-        else
-        {
+        } else {
             if(chitcp_addr_is_any(remote_addr))
                 nwildcards++;
             else if (chitcp_addr_cmp(remote_addr, (struct sockaddr *) &this_entry->remote_addr) ||
@@ -320,8 +297,7 @@ chisocketentry_t* chitcpd_lookup_socket(serverinfo_t *si, struct sockaddr *local
         if(nwildcards > 0 && exact_match_only)
             continue;
 
-        if(nwildcards < max_nwildcards)
-        {
+        if(nwildcards < max_nwildcards) {
             match = this_entry;
             max_nwildcards = nwildcards;
 

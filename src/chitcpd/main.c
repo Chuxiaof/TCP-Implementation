@@ -72,16 +72,14 @@ int main(int argc, char *argv[])
     /* Stop SIGPIPE from messing with our sockets */
     sigemptyset (&new);
     sigaddset(&new, SIGPIPE);
-    if (pthread_sigmask(SIG_BLOCK, &new, NULL) != 0)
-    {
+    if (pthread_sigmask(SIG_BLOCK, &new, NULL) != 0) {
         perror("Unable to mask SIGPIPE");
         exit(-1);
     }
 
     /* Process command-line arguments */
     while ((opt = getopt(argc, argv, "c:p:s:vh")) != -1)
-        switch (opt)
-        {
+        switch (opt) {
         case 'c':
             cap_file = strdup(optarg);
             break;
@@ -106,8 +104,7 @@ int main(int argc, char *argv[])
         port = GET_CHITCPD_PORT_STRING;
 
     /* Set logging level based on verbosity */
-    switch(verbosity)
-    {
+    switch(verbosity) {
     case 0:
         chitcp_setloglevel(ERROR);
         break;
@@ -143,15 +140,13 @@ int main(int argc, char *argv[])
 
     /* Run the daemon */
     rc = chitcpd_server_init(si);
-    if(rc != 0)
-    {
+    if(rc != 0) {
         fprintf(stderr, "Could not initialize server.\n");
         return rc;
     }
 
     rc = chitcpd_server_start(si);
-    if(rc != 0)
-    {
+    if(rc != 0) {
         fprintf(stderr, "Could not start server.\n");
         return rc;
     }
@@ -160,8 +155,7 @@ int main(int argc, char *argv[])
 
     /* Wait for daemon to be done */
     rc = chitcpd_server_wait(si);
-    if(rc != 0)
-    {
+    if(rc != 0) {
         fprintf(stderr, "Server stopped unexpectedly.\n");
         return rc;
     }

@@ -97,26 +97,20 @@ void* chitcpd_connection_thread_func(void *args)
     getsockname(connection->realsocket_recv, (struct sockaddr*) &local_addr, &lsize);
     getpeername(connection->realsocket_recv, (struct sockaddr*) &peer_addr, &psize);
 
-    do
-    {
+    do {
         /* Receive a chiTCP header */
         nbytes = recv(connection->realsocket_recv, &chitcp_header, sizeof(chitcphdr_t), 0);
 
-        if (nbytes == 0)
-        {
+        if (nbytes == 0) {
             // Server closed the connection
             close(connection->realsocket_recv);
             done = 1;
-        }
-        else if (nbytes == -1)
-        {
+        } else if (nbytes == -1) {
             chilog(ERROR, "Socket recv() failed on fd %d: %s", connection->realsocket_recv,
-                    strerror(errno));
+                   strerror(errno));
             close(connection->realsocket_recv);
             pthread_exit(NULL);
-        }
-        else if (si->state != CHITCPD_STATE_STOPPING)
-        {
+        } else if (si->state != CHITCPD_STATE_STOPPING) {
             chilog(TRACE, "Received a chiTCP header.");
             chilog_chitcp(TRACE, (uint8_t *)&chitcp_header, LOG_INBOUND);
 
@@ -124,28 +118,22 @@ void* chitcpd_connection_thread_func(void *args)
 
             payload_len = chitcp_ntohs(chitcp_header.payload_len);
 
-            if(chitcp_header.proto == CHITCP_PROTO_TCP)
-            {
+            if(chitcp_header.proto == CHITCP_PROTO_TCP) {
                 /* This means the header will be following by a TCP packet */
 
                 /* Receive the packet */
                 nbytes = recv(connection->realsocket_recv, buf, payload_len, 0);
-                if (nbytes == 0)
-                {
+                if (nbytes == 0) {
                     // Server closed the connection
                     close(connection->realsocket_recv);
                     done = 1;
-                }
-                else if (nbytes == -1)
-                {
+                } else if (nbytes == -1) {
                     chilog(ERROR, "Socket recv() failed on fd %d: %s",
-                            connection->realsocket_recv,
-                            strerror(errno));
+                           connection->realsocket_recv,
+                           strerror(errno));
                     close(connection->realsocket_recv);
                     pthread_exit(NULL);
-                }
-                else
-                {
+                } else {
                     chilog(TRACE, "chiTCP packet contains a TCP payload");
 
                     /* Allocate memory for received TCP packet */
@@ -161,24 +149,20 @@ void* chitcpd_connection_thread_func(void *args)
                      * packet to the right socket */
                     ret = chitcpd_recv_tcp_packet(si, packet, (struct sockaddr*) &local_addr, (struct sockaddr*) &peer_addr);
 
-                    if(ret != CHITCP_OK)
-                    {
+                    if(ret != CHITCP_OK) {
                         /* TODO: Should send some sort of ICMP-ish message back to peer.
                          * For now, we just silently drop the packet */
                         chilog(WARNING, "Received a packet but did not find a socket to deliver it to (in real TCP, a ICMP message would be sent back to peer)");
                     }
                 }
-            }
-            else
-            {
+            } else {
                 chilog(ERROR, "Received a chiTCP with an unknown payload type (proto=%i)", chitcp_header.proto);
                 close(connection->realsocket_recv);
                 done = 1;
             }
 
         }
-    }
-    while (!done);
+    } while (!done);
 
     pthread_exit(NULL);
 }
@@ -202,12 +186,9 @@ tcpconnentry_t* chitcpd_get_connection(serverinfo_t *si, struct sockaddr* addr)
 
     pthread_mutex_lock(&si->lock_connection_table);
     /* Find connection in connection table table */
-    for(int i=0; i < si->connection_table_size; i++)
-    {
-        if(!si->connection_table[i].available)
-        {
-            if(chitcp_addr_cmp(addr, (struct sockaddr *) &si->connection_table[i].peer_addr) == 0)
-            {
+    for(int i=0; i < si->connection_table_size; i++) {
+        if(!si->connection_table[i].available) {
+            if(chitcp_addr_cmp(addr, (struct sockaddr *) &si->connection_table[i].peer_addr) == 0) {
                 ret = &si->connection_table[i];
                 break;
             }
@@ -233,10 +214,8 @@ tcpconnentry_t* chitcpd_get_available_connection_entry(serverinfo_t *si)
     tcpconnentry_t *ret = NULL;
 
     /* Find matching slot in socket table */
-    for(int i=0; i < si->connection_table_size; i++)
-    {
-        if(si->connection_table[i].available)
-        {
+    for(int i=0; i < si->connection_table_size; i++) {
+        if(si->connection_table[i].available) {
             return &si->connection_table[i];
         }
     }
@@ -273,14 +252,11 @@ tcpconnentry_t* chitcpd_create_connection(serverinfo_t *si, struct sockaddr* add
     /* Set address of peer in connection entry
      * Note that we keep the IP address, but set the port to the chiTCP port
      * (since the peer address will be using an ephemeral port) */
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         addrsize = sizeof(struct sockaddr_in);
-    }
-    else if(addr->sa_family == AF_INET6)
+    } else if(addr->sa_family == AF_INET6)
         addrsize = sizeof(struct sockaddr_in6);
-    else
-    {
+    else {
         /* Should not happen; assert at top of function will fail first */
         return NULL;
     }
@@ -292,8 +268,8 @@ tcpconnentry_t* chitcpd_create_connection(serverinfo_t *si, struct sockaddr* add
     /* Establish connection */
     /* TODO: Fail gracefully if unable to connect to peer */
     connection->realsocket_send = socket(addr->sa_family,
-                             SOCK_STREAM,
-                             IPPROTO_TCP);
+                                         SOCK_STREAM,
+                                         IPPROTO_TCP);
 
     /* The following value will be set later, either in this function (below)
      * or by the network thread (see comment below). For now, we simply
@@ -311,8 +287,7 @@ tcpconnentry_t* chitcpd_create_connection(serverinfo_t *si, struct sockaddr* add
      * inbound packets (through realsocket_recv), and we do not know what
      * the socket for receiving packets will be until we accept() the connection.
      */
-    if(!chitcp_addr_is_loopback((struct sockaddr *) &connection->peer_addr))
-    {
+    if(!chitcp_addr_is_loopback((struct sockaddr *) &connection->peer_addr)) {
         connection->realsocket_recv = connection->realsocket_send;
         chitcpd_create_connection_thread(si, connection);
     }
@@ -333,8 +308,7 @@ int chitcpd_create_connection_thread(serverinfo_t *si, tcpconnentry_t* connectio
     cta->connection = connection;
     snprintf(cta->thread_name, 16, "network-layer-%d", next_thread_id++);
 
-    if (pthread_create(&connection_thread, NULL, chitcpd_connection_thread_func, cta) != 0)
-    {
+    if (pthread_create(&connection_thread, NULL, chitcpd_connection_thread_func, cta) != 0) {
         perror("Could not create a connection thread");
         return CHITCP_ETHREAD;
     }
@@ -374,14 +348,11 @@ tcpconnentry_t* chitcpd_add_connection(serverinfo_t *si, socket_t realsocket_sen
     /* Set address of peer in connection entry
      * Note that we keep the IP address, but set the port to the chiTCP port
      * (since the peer address will be using an ephemeral port) */
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         addrsize = sizeof(struct sockaddr_in);
-    }
-    else if(addr->sa_family == AF_INET6)
+    } else if(addr->sa_family == AF_INET6)
         addrsize = sizeof(struct sockaddr_in6);
-    else
-    {
+    else {
         /* Should not happen; assert at top of function will fail first */
         return NULL;
     }
@@ -412,8 +383,7 @@ int chitcpd_send_tcp_packet(serverinfo_t *si, chisocketentry_t *sock, tcp_packet
 {
     enum chitcpd_debug_response r = chitcpd_debug_breakpoint(si, ptr_to_fd(si, sock), DBG_EVT_OUTGOING_PACKET, -1);
 
-    if (r == DBG_RESP_DROP)
-    {
+    if (r == DBG_RESP_DROP) {
         chilog(TRACE, "chitcpd_send_tcp_packet: dropping the packet");
         chilog_tcp_minimal((struct sockaddr *) &sock->local_addr, (struct sockaddr *) &sock->remote_addr, SOCKET_NO(si, sock), tcp_packet, MINLOG_SEND_DROP);
         return tcp_packet->length; /* fake that the packet was sent */
@@ -470,8 +440,7 @@ void chitcpd_queue_packet_delivery(serverinfo_t *si, chisocketentry_t *entry, tc
 void chitcpd_deliver_packet(serverinfo_t *si, chisocketentry_t *entry, tcp_packet_t* tcp_packet, struct sockaddr_storage *local_addr, struct sockaddr_storage *remote_addr, char* log_prefix);
 int chitcpd_pcap_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct sockaddr_storage *local_addr, struct sockaddr_storage *peer_addr);
 
-typedef struct packet_delivery_list_entry
-{
+typedef struct packet_delivery_list_entry {
     chisocketentry_t *entry;
     tcp_packet_t* tcp_packet;
     struct timespec delivery_time;
@@ -495,34 +464,26 @@ void* chitcpd_packet_delivery_thread_func(void *args)
 
     pthread_mutex_lock(&si->lock_delivery);
 
-    while(! (si->state == CHITCPD_STATE_STOPPING || si->state == CHITCPD_STATE_STOPPING) )
-    {
-        while(!list_empty(&si->delivery_queue))
-        {
+    while(! (si->state == CHITCPD_STATE_STOPPING || si->state == CHITCPD_STATE_STOPPING) ) {
+        while(!list_empty(&si->delivery_queue)) {
             packet_delivery_list_entry_t *list_entry = list_get_at(&si->delivery_queue, 0);
 
             clock_gettime(CLOCK_REALTIME, &now);
             if(now.tv_sec > list_entry->delivery_time.tv_sec ||
-               (now.tv_sec == list_entry->delivery_time.tv_sec && now.tv_nsec >= list_entry->delivery_time.tv_nsec))
-            {
+                    (now.tv_sec == list_entry->delivery_time.tv_sec && now.tv_nsec >= list_entry->delivery_time.tv_nsec)) {
                 chitcpd_deliver_packet(si, list_entry->entry, list_entry->tcp_packet,
                                        &list_entry->local_addr, &list_entry->remote_addr, list_entry->log_prefix);
                 list_extract_at(&si->delivery_queue, 0);
-            }
-            else
-            {
+            } else {
                 next.tv_sec = list_entry->delivery_time.tv_sec;
                 next.tv_nsec = list_entry->delivery_time.tv_nsec;
                 break;
             }
         }
 
-        if(list_empty(&si->delivery_queue))
-        {
+        if(list_empty(&si->delivery_queue)) {
             pthread_cond_wait(&si->cv_delivery, &si->lock_delivery);
-        }
-        else
-        {
+        } else {
             pthread_cond_timedwait(&si->cv_delivery, &si->lock_delivery, &next);
         }
 
@@ -564,8 +525,7 @@ int chitcpd_recv_tcp_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct s
     /* Get entry of socket that will receive this packet */
     entry = chitcpd_lookup_socket(si, (struct sockaddr *) &local_addr, (struct sockaddr *) &remote_addr, FALSE);
 
-    if(entry == NULL)
-    {
+    if(entry == NULL) {
         chilog(DEBUG, "No socket listening on port %i", chitcp_ntohs(header->dest));
 
         return CHITCP_ESOCKET;
@@ -574,8 +534,7 @@ int chitcpd_recv_tcp_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct s
     int sockfd = SOCKET_NO(si, entry);
 
     /* The socket has to be either active or passive */
-    if(entry->actpas_type == SOCKET_UNINITIALIZED)
-    {
+    if(entry->actpas_type == SOCKET_UNINITIALIZED) {
         /* This should not happen */
         chilog(ERROR, "Received packet for socket %i (port %i) but it is not initialized.", sockfd, chitcp_ntohs(header->dest));
 
@@ -590,28 +549,23 @@ int chitcpd_recv_tcp_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct s
      * to deliver */
     withheld_tcp_packet_t *withheld_packet = NULL;
 
-    if (r == DBG_RESP_DROP)
-    {
+    if (r == DBG_RESP_DROP) {
         /* If dropping the packet, we don't do anything but we log it */
         chilog_tcp_minimal((struct sockaddr *) &local_addr, (struct sockaddr *) &remote_addr, SOCKET_NO(si, entry), tcp_packet, MINLOG_RCVD_DROP);
-    }
-    else
-    {
+    } else {
 
         /* If DBG_RESP_WITHHOLD, we add the packet to the withheld list.
          * If DBG_RESP_DUPLICATE, we add the packet to the withheld list (this will be the duplicate)
          * and further below we deliver it as well (so, ultimately, we will receive two copies)
          */
-        if (r == DBG_RESP_WITHHOLD || r == DBG_RESP_DUPLICATE)
-        {
+        if (r == DBG_RESP_WITHHOLD || r == DBG_RESP_DUPLICATE) {
             /* Put the packet on the socket's withheld_packets queue */
             chilog(TRACE, "chitcpd_recv_tcp_packet: withholding a copy");
 
             withheld_tcp_packet_t *wp = calloc(sizeof(withheld_tcp_packet_t), 1);
 
             /* If we're creating a duplicate, make a deep copy */
-            if (r == DBG_RESP_DUPLICATE)
-            {
+            if (r == DBG_RESP_DUPLICATE) {
                 wp->packet = calloc(sizeof(tcp_packet_t), 1);
                 wp->packet->length = tcp_packet->length;
                 wp->packet->raw = calloc(tcp_packet->length, 1);
@@ -621,8 +575,7 @@ int chitcpd_recv_tcp_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct s
             /* Otherwise, if we're just withholding the packet, we just
              * need to point to it, since it won't be processed (and freed)
              * until it is un-withheld */
-            else
-            {
+            else {
                 wp->packet = tcp_packet;
                 wp->duplicate = FALSE;
             }
@@ -636,8 +589,7 @@ int chitcpd_recv_tcp_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct s
         }
         /* If, besides receiving the current packet, we also want to deliver a withheld packet,
          * we get one from the withheld list */
-        else if (r == DBG_RESP_DRAW_WITHHELD)
-        {
+        else if (r == DBG_RESP_DRAW_WITHHELD) {
             /* Put a previously withheld packet in the socket's packet queue */
             chilog(TRACE, "chitcpd_recv_tcp_packet: delivering a withheld packet");
             pthread_mutex_lock(&entry->lock_withheld_packets);
@@ -653,14 +605,10 @@ int chitcpd_recv_tcp_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct s
          * we deliver the packet, and the duplicate will be delivered at a later time (it
          * is currently sitting in the withheld_packets list).
          */
-        if (r == DBG_RESP_NONE || r == DBG_RESP_DRAW_WITHHELD || r == DBG_RESP_DUPLICATE)
-        {
-            if(si->latency > 0.0)
-            {
+        if (r == DBG_RESP_NONE || r == DBG_RESP_DRAW_WITHHELD || r == DBG_RESP_DUPLICATE) {
+            if(si->latency > 0.0) {
                 chitcpd_queue_packet_delivery(si, entry, tcp_packet, &local_addr, &remote_addr, MINLOG_RCVD);
-            }
-            else
-            {
+            } else {
                 /* No need to put the packet in the delivery queue; just deliver the packet */
                 chitcpd_deliver_packet(si, entry, tcp_packet, &local_addr, &remote_addr, MINLOG_RCVD);
             }
@@ -671,19 +619,15 @@ int chitcpd_recv_tcp_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct s
              * being processed by a passive socket, but an active socket may have been
              * created since the packet was withheld (e.g., in the case of duplicate SYNs)
              */
-            if (withheld_packet)
-            {
+            if (withheld_packet) {
                 /* Get entry of socket that will receive this packet */
                 chisocketentry_t *withheld_entry = chitcpd_lookup_socket(si, (struct sockaddr *) &withheld_packet->local_addr, (struct sockaddr *) &withheld_packet->remote_addr, FALSE);
 
-                if(si->latency > 0.0)
-                {
+                if(si->latency > 0.0) {
                     chitcpd_queue_packet_delivery(si, withheld_entry, withheld_packet->packet,
                                                   &withheld_entry->local_addr, &withheld_entry->remote_addr,
                                                   withheld_packet->duplicate? MINLOG_RCVD_DUPLD : MINLOG_RCVD_DELAYED);
-                }
-                else
-                {
+                } else {
                     chitcpd_deliver_packet(si, withheld_entry, withheld_packet->packet,
                                            &withheld_entry->local_addr, &withheld_entry->remote_addr,
                                            withheld_packet->duplicate? MINLOG_RCVD_DUPLD : MINLOG_RCVD_DELAYED);
@@ -717,8 +661,7 @@ void chitcpd_queue_packet_delivery(serverinfo_t *si, chisocketentry_t *entry, tc
 
     delivery_entry->delivery_time.tv_sec += latency_ns / SECOND;
     delivery_entry->delivery_time.tv_nsec += latency_ns % SECOND;
-    if (delivery_entry->delivery_time.tv_nsec >= SECOND)
-    {
+    if (delivery_entry->delivery_time.tv_nsec >= SECOND) {
         delivery_entry->delivery_time.tv_nsec -= SECOND;
         delivery_entry->delivery_time.tv_sec += 1;
     }
@@ -740,8 +683,7 @@ void chitcpd_deliver_packet(serverinfo_t *si, chisocketentry_t *entry, tcp_packe
     chitcpd_pcap_packet(si, tcp_packet, remote_addr, local_addr);
 
     /* We need to treat this differently depending on whether the socket is active or passive */
-    if(entry->actpas_type == SOCKET_ACTIVE)
-    {
+    if(entry->actpas_type == SOCKET_ACTIVE) {
         active_chisocket_state_t *socket_state = &entry->socket_state.active;
 
         /* Put the packet in the socket's packet queue */
@@ -754,9 +696,7 @@ void chitcpd_deliver_packet(serverinfo_t *si, chisocketentry_t *entry, tcp_packe
         entry->socket_state.active.flags.net_recv = 1;
         pthread_cond_broadcast(&entry->socket_state.active.cv_event);
         pthread_mutex_unlock(&entry->socket_state.active.lock_event);
-    }
-    else if (entry->actpas_type == SOCKET_PASSIVE)
-    {
+    } else if (entry->actpas_type == SOCKET_PASSIVE) {
         /* If the socket is passive, this means the packet is probably
          * a SYN packet that is initiating a three-way handshake.
          * However, it is not our responsibility to check this. We
@@ -795,15 +735,14 @@ void chitcpd_deliver_packet(serverinfo_t *si, chisocketentry_t *entry, tcp_packe
 
 /* Define a new pcap record, when logging to a pcap file. */
 typedef struct pcaprecord_hdr {
-   uint32_t ts_sec;         /* timestamp seconds */
-   uint32_t ts_nsec;        /* timestamp nanoseconds */
-   uint32_t incl_len;       /* length of data saved */
-   uint32_t orig_len;       /* original length of packet */
+    uint32_t ts_sec;         /* timestamp seconds */
+    uint32_t ts_nsec;        /* timestamp nanoseconds */
+    uint32_t incl_len;       /* length of data saved */
+    uint32_t orig_len;       /* original length of packet */
 } pcaprec_hdr_t;
 
 /* IP Header struct, necessary when creating pcap file */
-struct iphdr
-{
+struct iphdr {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
     uint8_t  ihl:4,
              version:4;
@@ -822,7 +761,7 @@ struct iphdr
     uint16_t cksum;      /* checksum */
     uint32_t src;     /* Source Address */
     uint32_t dst;     /* Destination Address */
-  } __attribute__ ((packed)) ;
+} __attribute__ ((packed)) ;
 typedef struct iphdr iphdr_t;
 
 int chitcpd_pcap_packet(serverinfo_t *si, tcp_packet_t* tcp_packet, struct sockaddr_storage *local_addr, struct sockaddr_storage *peer_addr)

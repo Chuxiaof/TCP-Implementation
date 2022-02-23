@@ -78,8 +78,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__WAIT_FOR_STATE);
 /* Handling DEBUG requires a slightly modified prototype */
 int chitcpd_handle_CHITCPD_MSG_CODE__DEBUG(serverinfo_t *si, ChitcpdMsg *req, ChitcpdMsg *resp_outer, ChitcpdResp *resp_inner, int client_sockfd);
 
-handler_function handlers[] =
-{
+handler_function handlers[] = {
     HANDLER_ENTRY(CHITCPD_MSG_CODE__SOCKET),
     HANDLER_ENTRY(CHITCPD_MSG_CODE__BIND),
     HANDLER_ENTRY(CHITCPD_MSG_CODE__LISTEN),
@@ -93,8 +92,7 @@ handler_function handlers[] =
     HANDLER_ENTRY(CHITCPD_MSG_CODE__WAIT_FOR_STATE)
 };
 
-static char *code_strs[] =
-{
+static char *code_strs[] = {
     "SOCKET",
     "BIND",
     "LISTEN",
@@ -145,8 +143,7 @@ void* chitcpd_handler_dispatch(void *args)
     resp_outer.code = CHITCPD_MSG_CODE__RESP;
     resp_outer.resp = &resp_inner;
 
-    do
-    {
+    do {
         rc = chitcpd_recv_msg(client_socket, &req);
         if (rc < 0)
             break;
@@ -162,8 +159,7 @@ void* chitcpd_handler_dispatch(void *args)
 
         chitcpd_msg__free_unpacked(req, NULL);
 
-        if(rc != CHITCP_OK)
-        {
+        if(rc != CHITCP_OK) {
             chilog(ERROR, "Error when handling request.");
             /* We don't need to bail out just because one request failed */
         }
@@ -171,20 +167,17 @@ void* chitcpd_handler_dispatch(void *args)
         /* Send response */
         rc = chitcpd_send_msg(client_socket, &resp_outer);
 
-        if (resp_inner.has_buf)
-        {
+        if (resp_inner.has_buf) {
             /* This buffer was allocated in RECV. */
             free(resp_inner.buf.data);
             resp_inner.has_buf = FALSE;
         }
-        if (resp_inner.socket_state != NULL)
-        {
+        if (resp_inner.socket_state != NULL) {
             /* This submessage was allocated in GET_SOCKET_STATE. */
             free(resp_inner.socket_state);
             resp_inner.socket_state = NULL;
         }
-        if (resp_inner.socket_buffer_contents != NULL)
-        {
+        if (resp_inner.socket_buffer_contents != NULL) {
             /* This submessage was allocated in GET_SOCKET_BUFFER_CONTENTS. */
             if (resp_inner.socket_buffer_contents->snd.data != NULL)
                 free(resp_inner.socket_buffer_contents->snd.data);
@@ -203,8 +196,7 @@ void* chitcpd_handler_dispatch(void *args)
         if (rc < 0)
             break;
 
-    }
-    while (!done);
+    } while (!done);
 
     /* TODO: Be more discerning about what kind of shutdown this is */
     if(si->state == CHITCPD_STATE_STOPPING)
@@ -214,23 +206,19 @@ void* chitcpd_handler_dispatch(void *args)
 
     int freed_sockets = 0;
 
-    for(int i=0; i < si->chisocket_table_size; i++)
-    {
+    for(int i=0; i < si->chisocket_table_size; i++) {
         chisocketentry_t *entry = &si->chisocket_table[i];
-        if(!entry->available && entry->creator_thread == pthread_self())
-        {
+        if(!entry->available && entry->creator_thread == pthread_self()) {
             chilog(DEBUG, "Freeing socket %i", i);
             /* TODO: The connection should be aborted (not closed) here.
              * However, we do not currently support the ABORT call or
              * RST's so we simply "force close" each socket. */
 
-            if(entry->actpas_type == SOCKET_ACTIVE)
-            {
+            if(entry->actpas_type == SOCKET_ACTIVE) {
                 /* Any transition to CLOSED will force a termination of the TCP thread */
                 chitcpd_update_tcp_state(si, entry, CLOSED);
                 pthread_join(entry->socket_state.active.tcp_thread, NULL);
-            }
-            else if(entry->actpas_type == SOCKET_PASSIVE)
+            } else if(entry->actpas_type == SOCKET_PASSIVE)
                 chitcpd_free_socket_entry(si, entry);
 
             freed_sockets++;
@@ -268,17 +256,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__SOCKET)
 
     ret = chitcpd_allocate_socket(si, &socket_index);
 
-    if(ret == CHITCP_OK)
-    {
+    if(ret == CHITCP_OK) {
         si->chisocket_table[socket_index].domain = domain;
         si->chisocket_table[socket_index].type = type;
         si->chisocket_table[socket_index].protocol = protocol;
 
         resp->ret = socket_index;
         resp->error_code = 0;
-    }
-    else
-    {
+    } else {
         resp->ret = -1;
         resp->error_code = ENOMEM;
     }
@@ -308,8 +293,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__BIND)
     addrlen = req->addr.len;
     addr = (struct sockaddr*) req->addr.data;
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -317,8 +301,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__BIND)
     }
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
 
-    if(entry->tcp_state != CLOSED)
-    {
+    if(entry->tcp_state != CLOSED) {
         chilog(ERROR, "Tried to bind a non-CLOSED socket: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -333,24 +316,21 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__BIND)
 
     port = chitcp_ntohs(chitcp_get_addr_port(addr));
 
-    if (port < 0)
-    {
+    if (port < 0) {
         chilog(ERROR, "Port could not be extracted from address.");
         ret = -1;
         error_code = EINVAL;
         goto done;
     }
 
-    if (port > si->port_table_size)
-    {
+    if (port > si->port_table_size) {
         chilog(ERROR, "Invalid port specified: %i", port);
         ret = -1;
         error_code = EINVAL;
         goto done;
     }
 
-    if (si->port_table[port] != NULL)
-    {
+    if (si->port_table[port] != NULL) {
         chilog(ERROR, "Port is already taken: %i", port);
         ret = -1;
         error_code = EINVAL;
@@ -403,8 +383,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__LISTEN)
     sockfd = req->sockfd;
     backlog = req->backlog;
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -412,8 +391,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__LISTEN)
     }
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
 
-    if(entry->tcp_state != CLOSED)
-    {
+    if(entry->tcp_state != CLOSED) {
         chilog(ERROR, "Tried to listen() a non-CLOSED socket: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -462,8 +440,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__ACCEPT)
 
     sockfd = req->sockfd;
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -474,8 +451,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__ACCEPT)
     passive_chisocket_state_t *socket_state = &entry->socket_state.passive;
     pending_connection_t *pending_connection;
 
-    if(entry->actpas_type != SOCKET_PASSIVE)
-    {
+    if(entry->actpas_type != SOCKET_PASSIVE) {
         /* We need to check this because sockets spawned by a passive socket are
          * (fleetingly) in the LISTEN state. */
         chilog(ERROR, "Tried to accept() a socket that is not passive: %i", sockfd);
@@ -484,8 +460,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__ACCEPT)
         goto done;
     }
 
-    if(entry->tcp_state != LISTEN)
-    {
+    if(entry->tcp_state != LISTEN) {
         chilog(ERROR, "Tried to accept() a socket that is not in LISTEN state: %i", sockfd);
         ret = -1;
         error_code = EINVAL;
@@ -503,8 +478,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__ACCEPT)
     /* Allocate a socket. This will be an active socket */
     ret = chitcpd_allocate_socket(si, &socket_index);
 
-    if(ret != CHITCP_OK)
-    {
+    if(ret != CHITCP_OK) {
         ret = -1;
         error_code = ENOMEM;
         goto done;
@@ -539,8 +513,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__ACCEPT)
     enum chitcpd_debug_response r =
         chitcpd_debug_breakpoint(si, sockfd, DBG_EVT_PENDING_CONNECTION, socket_index);
 
-    if (r != DBG_RESP_NONE)
-    {
+    if (r != DBG_RESP_NONE) {
         chilog(ERROR, "Unexpected return value in DBG_EVT_PENDING_CONNECTION breakpoint.");
     }
 
@@ -595,8 +568,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__ACCEPT)
     if(active_entry->remote_addr.ss_len != 0)
         resp->addr.len = active_entry->remote_addr.ss_len;
 #else
-    switch(active_entry->remote_addr.ss_family)
-    {
+    switch(active_entry->remote_addr.ss_family) {
     case AF_INET:
         resp->addr.len = sizeof(struct sockaddr_in);
     case AF_INET6:
@@ -636,8 +608,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CONNECT)
     addrlen = req->addr.len;
     memcpy(&addr, req->addr.data, addrlen);
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -649,8 +620,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CONNECT)
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
     int port;
 
-    if(entry->tcp_state != CLOSED)
-    {
+    if(entry->tcp_state != CLOSED) {
         chilog(ERROR, "Tried to connect a non-CLOSED socket: %i %i", sockfd, entry->tcp_state);
         ret = -1;
         error_code = EALREADY;
@@ -661,8 +631,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CONNECT)
     connection = chitcpd_get_connection(si, (struct sockaddr*) &addr);
 
     /* If not, establish a connection with the peer's chiTCP daemon */
-    if(connection == NULL)
-    {
+    if(connection == NULL) {
         chilog(DEBUG, "No connection entry found, creating one.");
         connection = chitcpd_create_connection(si, (struct sockaddr*) &addr);
     }
@@ -670,8 +639,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CONNECT)
     /* Find available ephemeral port */
     port = chitcpd_find_ephemeral_port(si);
 
-    if(port == -1)
-    {
+    if(port == -1) {
         ret = -1;
         error_code = EAGAIN;
         goto done;
@@ -699,8 +667,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CONNECT)
      * Note: We treat the loopback address as a special case because
      * that is what will be used for the tests. */
     bzero(&entry->local_addr, sizeof(struct sockaddr_storage));
-    if (chitcp_addr_is_loopback((struct sockaddr *) &addr))
-    {
+    if (chitcp_addr_is_loopback((struct sockaddr *) &addr)) {
         memcpy(&entry->local_addr,  &addr, sizeof(struct sockaddr_storage));
     }
     entry->local_addr.ss_family = addr.ss_family;
@@ -740,8 +707,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CONNECT)
      *       to ensure that a connection teardown cannot be initiated if the socket
      *       is in ESTABLISHED state by connect() hasn't returned yet.
      */
-    while(entry->tcp_state != ESTABLISHED)
-    {
+    while(entry->tcp_state != ESTABLISHED) {
         struct timespec ts;
         int rc;
 
@@ -750,8 +716,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CONNECT)
 
         /* TODO: Implement ETIMEDOUT return value in connect() */
         rc = pthread_cond_timedwait(&entry->cv_tcp_state, &entry->lock_tcp_state, &ts);
-        if (rc == ETIMEDOUT)
-        {
+        if (rc == ETIMEDOUT) {
             chilog(TRACE, "Waiting for ESTABLISHED... [timeout, state=%i]", entry->tcp_state);
         }
     }
@@ -794,16 +759,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__SEND)
     /* TODO: handle the different flags */
     /* int flags = req->flags; */
 
-    if(length <= 0)
-    {
+    if(length <= 0) {
         chilog(ERROR, "Invalid length: %i", length);
         ret = -1;
         error_code = EINVAL;
         goto done;
     }
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -811,16 +774,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__SEND)
     }
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
 
-    if(entry->tcp_state == CLOSED)
-    {
+    if(entry->tcp_state == CLOSED) {
         chilog(ERROR, "Tried to send() on a CLOSED socket: %i", sockfd);
         ret = -1;
         error_code = ENOTCONN;
         goto done;
     }
 
-    if (entry->tcp_state == LISTEN )
-    {
+    if (entry->tcp_state == LISTEN ) {
         /* This is allowed by the TCP standard, but we do not support it
          * in chitcp */
         chilog(ERROR, "Tried to send() on a LISTEN socket: %i", sockfd);
@@ -830,8 +791,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__SEND)
     }
 
     if (entry->tcp_state != SYN_SENT    && entry->tcp_state != SYN_RCVD   &&
-        entry->tcp_state != ESTABLISHED && entry->tcp_state != CLOSE_WAIT    )
-    {
+            entry->tcp_state != ESTABLISHED && entry->tcp_state != CLOSE_WAIT    ) {
         chilog(ERROR, "Tried to send() on a closing socket: %i", sockfd);
         ret = -1;
         error_code = ENOTCONN;
@@ -847,8 +807,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__SEND)
     nbytes = circular_buffer_write(&tcp_data->send, data, length, BUFFER_BLOCKING);
 
     /* TODO: Be more discerning about the returned error */
-    if (nbytes < 0)
-    {
+    if (nbytes < 0) {
         chilog(ERROR, "circular_buffer_write returned an error: %i", nbytes);
         ret = -1;
         error_code = EINVAL;
@@ -857,8 +816,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__SEND)
 
     /* If the socket is still being synchronized, we enqueue the data,
      * but we don't notify the TCP thread */
-    if (entry->tcp_state == ESTABLISHED || entry->tcp_state == CLOSE_WAIT)
-    {
+    if (entry->tcp_state == ESTABLISHED || entry->tcp_state == CLOSE_WAIT) {
         pthread_mutex_lock(&socket_state->lock_event);
         socket_state->flags.app_send = 1;
         pthread_cond_broadcast(&socket_state->cv_event);
@@ -895,16 +853,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__RECV)
     sockfd = req->sockfd;
     length = req->len;
     /* TODO: handle the different flags */
-    if(length <= 0)
-    {
+    if(length <= 0) {
         chilog(ERROR, "Invalid length: %i", length);
         ret = -1;
         error_code = EINVAL;
         goto done;
     }
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -912,16 +868,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__RECV)
     }
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
 
-    if(entry->tcp_state == CLOSED)
-    {
+    if(entry->tcp_state == CLOSED) {
         chilog(ERROR, "Tried to recv() on a CLOSED socket: %i", sockfd);
         ret = -1;
         error_code = ENOTCONN;
         goto done;
     }
 
-    if (entry->tcp_state == LISTEN && entry->actpas_type == SOCKET_PASSIVE)
-    {
+    if (entry->tcp_state == LISTEN && entry->actpas_type == SOCKET_PASSIVE) {
         chilog(ERROR, "Cannot recv() on a passive socket: %i", sockfd);
         ret = -1;
         error_code = ENOTCONN;
@@ -929,8 +883,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__RECV)
     }
 
     else if (entry->tcp_state == LAST_ACK    || entry->tcp_state == TIME_WAIT ||
-             entry->tcp_state == CLOSING)
-    {
+             entry->tcp_state == CLOSING) {
         ret = 0;
         goto done;
     }
@@ -948,15 +901,13 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__RECV)
     nbytes = circular_buffer_read(&tcp_data->recv, resp->buf.data, length, BUFFER_BLOCKING);
 
     /* TODO: Be more discerning about the returned error */
-    if (nbytes < 0)
-    {
+    if (nbytes < 0) {
         chilog(ERROR, "circular_buffer_write returned an error: %i", nbytes);
         ret = -1;
         error_code = EINVAL;
         goto done;
     }
-    if (nbytes == 0)
-    {
+    if (nbytes == 0) {
         /* This means the buffer has been closed */
         assert(entry->tcp_state == CLOSING    ||
                entry->tcp_state == TIME_WAIT  ||
@@ -973,8 +924,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__RECV)
     /* We don't signal the TCP thread if the connection has not yet
      * been synchronized */
     if (entry->tcp_state == ESTABLISHED ||
-        entry->tcp_state == FIN_WAIT_1  || entry->tcp_state == FIN_WAIT_2)
-    {
+            entry->tcp_state == FIN_WAIT_1  || entry->tcp_state == FIN_WAIT_2) {
         pthread_mutex_lock(&socket_state->lock_event);
         socket_state->flags.app_recv = 1;
         pthread_cond_broadcast(&socket_state->cv_event);
@@ -987,7 +937,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__RECV)
     resp->has_buf = TRUE;
     resp->buf.len = nbytes;
 
- done:
+done:
     /* Create response return value */
     resp->ret = ret;
     resp->error_code = error_code;
@@ -1015,8 +965,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
 
     chilog(TRACE, ">>> CLOSE sockfd=%i", sockfd);
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -1024,16 +973,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
     }
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
 
-    if(entry->tcp_state == CLOSED)
-    {
+    if(entry->tcp_state == CLOSED) {
         chilog(ERROR, "Tried to close() a CLOSED socket: %i", sockfd);
         ret = -1;
         error_code = ENOTCONN;
         goto done;
     }
 
-    if (entry->tcp_state == LISTEN && entry->actpas_type == SOCKET_PASSIVE)
-    {
+    if (entry->tcp_state == LISTEN && entry->actpas_type == SOCKET_PASSIVE) {
         /* Since this is a passive socket, there is no TCP thread, so we
          * can simply go ahead and release its resources */
         /* TODO: If chitcp ever implements ICMP, we would need to sent
@@ -1044,8 +991,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
         goto done;
     }
 
-    if (entry->tcp_state == LISTEN && entry->actpas_type == SOCKET_ACTIVE)
-    {
+    if (entry->tcp_state == LISTEN && entry->actpas_type == SOCKET_ACTIVE) {
         /* Very unlikely this will happen, since an active LISTEN socket
          * almost immediately transitions to SYN_RCVD. */
         chilog(ERROR, "Not supported: close()ing an active LISTEN socket: %i", sockfd);
@@ -1054,8 +1000,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
         goto done;
     }
 
-    if (entry->tcp_state == SYN_SENT)
-    {
+    if (entry->tcp_state == SYN_SENT) {
         /* Not supported. TCP standard requires:
          *
          *     SYN-SENT STATE
@@ -1070,8 +1015,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
         goto done;
     }
 
-    if (entry->tcp_state == SYN_RCVD)
-    {
+    if (entry->tcp_state == SYN_RCVD) {
         /* Not supported. TCP standard requires:
          *
          *     SYN-RECEIVED STATE
@@ -1088,9 +1032,8 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
     }
 
     if (entry->tcp_state == FIN_WAIT_1  || entry->tcp_state == FIN_WAIT_2  ||
-        entry->tcp_state == CLOSING     || entry->tcp_state == LAST_ACK    ||
-        entry->tcp_state == TIME_WAIT )
-    {
+            entry->tcp_state == CLOSING     || entry->tcp_state == LAST_ACK    ||
+            entry->tcp_state == TIME_WAIT ) {
         chilog(ERROR, "Tried to close() an already closing socket: %i", sockfd);
         ret = -1;
         error_code = ENOTCONN;
@@ -1113,10 +1056,9 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
     pthread_mutex_unlock(&socket_state->lock_event);
 
     /* Wait for socket to enter a valid closing state */
-    if (! (entry->tcp_state == CLOSE_WAIT || entry->tcp_state == ESTABLISHED))
-    {
+    if (! (entry->tcp_state == CLOSE_WAIT || entry->tcp_state == ESTABLISHED)) {
         chilog(ERROR, "Socket entered an inconsist"
-                "ent state (should be ESTABLISHED or CLOSE_WAIT)");
+               "ent state (should be ESTABLISHED or CLOSE_WAIT)");
         ret = -1;
         error_code = EBADF;
         goto done;
@@ -1124,17 +1066,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
 
     chilog(TRACE, "Waiting for closing state...");
 
-    if (entry->tcp_state == ESTABLISHED)
-    {
+    if (entry->tcp_state == ESTABLISHED) {
         /* TODO: According to RFC 793, we actually shouldn't return from close()
          * until we're in FIN_WAIT_2 *and* the retransmission queue is empty.
          * However, a simultaneous close could land us in CLOSING or TIME_WAIT */
         while(! (entry->tcp_state == FIN_WAIT_2 || entry->tcp_state == CLOSING ||
                  entry->tcp_state == TIME_WAIT || entry->tcp_state == CLOSED ))
             pthread_cond_wait(&entry->cv_tcp_state, &entry->lock_tcp_state);
-    }
-    else if (entry->tcp_state == CLOSE_WAIT)
-    {
+    } else if (entry->tcp_state == CLOSE_WAIT) {
         while(! (entry->tcp_state == LAST_ACK || entry->tcp_state == CLOSED) )
             pthread_cond_wait(&entry->cv_tcp_state, &entry->lock_tcp_state);
     }
@@ -1144,8 +1083,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__CLOSE)
     else if (entry->tcp_state == FIN_WAIT_2 || entry->tcp_state == CLOSING ||
              entry->tcp_state == TIME_WAIT  || entry->tcp_state == LAST_ACK )
         chilog(TRACE, "Socket entered a closing state");
-    else
-    {
+    else {
         chilog(ERROR, "Socket entered an inconsistent state %i", entry->tcp_state);
         ret = -1;
         error_code = EBADF;
@@ -1183,8 +1121,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__GET_SOCKET_STATE)
 
     sockfd = req->sockfd;
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available || si->chisocket_table[sockfd].actpas_type != SOCKET_ACTIVE)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available || si->chisocket_table[sockfd].actpas_type != SOCKET_ACTIVE) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -1194,8 +1131,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__GET_SOCKET_STATE)
     /* This will be freed back in the dispatch function. */
     resp->socket_state = malloc(sizeof(ChitcpdSocketState));
 
-    if (!resp->socket_state)
-    {
+    if (!resp->socket_state) {
         ret = -1;
         error_code = errno;
         goto done;
@@ -1215,7 +1151,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__GET_SOCKET_STATE)
 
     ret = 0;
 
- done:
+done:
     /* Create response */
     resp->ret = ret;
     resp->error_code = error_code;
@@ -1240,24 +1176,18 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__GET_SOCKET_BUFFER_CONTENTS)
 
     sockfd = req->sockfd;
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available || si->chisocket_table[sockfd].actpas_type != SOCKET_ACTIVE)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available || si->chisocket_table[sockfd].actpas_type != SOCKET_ACTIVE) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
-    }
-    else
-    {
+    } else {
         /* This will be freed back in the dispatch function. */
         resp->socket_buffer_contents = malloc(sizeof(ChitcpdSocketBufferContents));
 
-        if (!resp->socket_buffer_contents)
-        {
+        if (!resp->socket_buffer_contents) {
             ret = -1;
             error_code = errno;
-        }
-        else
-        {
+        } else {
             chitcpd_socket_buffer_contents__init(resp->socket_buffer_contents);
 
             tcp_data_t *tcp_data = &si->chisocket_table[sockfd].socket_state.active.tcp_data;
@@ -1266,15 +1196,13 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__GET_SOCKET_BUFFER_CONTENTS)
 
             int snd_len = circular_buffer_count(&tcp_data->send);
             uint8_t *snd_data = malloc(snd_len);
-            if (!snd_data)
-            {
+            if (!snd_data) {
                 ret = -1;
                 error_code = errno;
             }
             int rcv_len = circular_buffer_count(&tcp_data->recv);
             uint8_t *rcv_data = malloc(rcv_len);
-            if (!rcv_data)
-            {
+            if (!rcv_data) {
                 ret = -1;
                 error_code = errno;
             }
@@ -1320,16 +1248,14 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__WAIT_FOR_STATE)
     sockfd = req->sockfd;
     tcp_state = req->tcp_state;
 
-    if(si->chisocket_table[sockfd].available && tcp_state == CLOSED)
-    {
+    if(si->chisocket_table[sockfd].available && tcp_state == CLOSED) {
         chilog(TRACE, "Waiting for CLOSED, but socket %i has already been freed, so returning", sockfd);
         ret = 0;
 
         goto done;
     }
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available || si->chisocket_table[sockfd].actpas_type != SOCKET_ACTIVE)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available || si->chisocket_table[sockfd].actpas_type != SOCKET_ACTIVE) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         ret = -1;
         error_code = EBADF;
@@ -1337,8 +1263,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__WAIT_FOR_STATE)
     }
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
 
-    if(!IS_VALID_TCP_STATE(tcp_state))
-    {
+    if(!IS_VALID_TCP_STATE(tcp_state)) {
         chilog(ERROR, "Not a valid TCP state: %i", tcp_state);
         ret = -1;
         error_code = EINVAL;
@@ -1347,8 +1272,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__WAIT_FOR_STATE)
 
     pthread_mutex_lock(&entry->lock_tcp_state);
     chilog(TRACE, "Socket %i is %s. Waiting for %s.", sockfd, tcp_str(entry->tcp_state), tcp_str(tcp_state));
-    while(entry->tcp_state != tcp_state)
-    {
+    while(entry->tcp_state != tcp_state) {
         pthread_cond_wait(&entry->cv_tcp_state, &entry->lock_tcp_state);
         chilog(TRACE, "Socket %i is %s. Waiting for %s.", sockfd, tcp_str(entry->tcp_state), tcp_str(tcp_state));
     }
@@ -1356,7 +1280,7 @@ HANDLER_FUNCTION(CHITCPD_MSG_CODE__WAIT_FOR_STATE)
 
     ret = 0;
 
- done:
+done:
     /* Create response */
     resp->ret = ret;
     resp->error_code = error_code;

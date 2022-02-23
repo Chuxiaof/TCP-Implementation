@@ -10,26 +10,23 @@
 
 static enum chitcpd_debug_response active_close_checker(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
     }
 
-    if (event_flag == DBG_EVT_TCP_STATE_CHANGE)
-    {
+    if (event_flag == DBG_EVT_TCP_STATE_CHANGE) {
         tcp_state_t curs = state_info->tcp_state;
         cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
 
-        if(saved_state_info)
-        {
+        if(saved_state_info) {
             cr_assert(IS_VALID_TCP_STATE(saved_state_info->tcp_state), "Unknown (previous) TCP state.");
             tcp_state_t prevs = saved_state_info->tcp_state;
 
             if ( (prevs == ESTABLISHED && curs != FIN_WAIT_1) ||
-                 (prevs == FIN_WAIT_1 && curs != FIN_WAIT_2)  ||
-                 (prevs == FIN_WAIT_2 && curs != TIME_WAIT)   ||
-                 (prevs == TIME_WAIT && curs != CLOSED)
-            )
+                    (prevs == FIN_WAIT_1 && curs != FIN_WAIT_2)  ||
+                    (prevs == FIN_WAIT_2 && curs != TIME_WAIT)   ||
+                    (prevs == TIME_WAIT && curs != CLOSED)
+               )
                 cr_assert_fail("Invalid transition: %s -> %s", tcp_str(prevs), tcp_str(curs));
         }
 
@@ -47,25 +44,22 @@ static enum chitcpd_debug_response active_close_checker(int sockfd, enum chitcpd
 
 static enum chitcpd_debug_response passive_close_checker(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
     }
 
-    if (event_flag == DBG_EVT_TCP_STATE_CHANGE)
-    {
+    if (event_flag == DBG_EVT_TCP_STATE_CHANGE) {
         tcp_state_t curs = state_info->tcp_state;
         cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
 
-        if(saved_state_info)
-        {
+        if(saved_state_info) {
             cr_assert(IS_VALID_TCP_STATE(saved_state_info->tcp_state), "Unknown (previous) TCP state.");
             tcp_state_t prevs = saved_state_info->tcp_state;
 
             if ( (prevs == ESTABLISHED && curs != CLOSE_WAIT) ||
-                 (prevs == CLOSE_WAIT && curs != LAST_ACK)  ||
-                 (prevs == LAST_ACK && curs != CLOSED)
-            )
+                    (prevs == CLOSE_WAIT && curs != LAST_ACK)  ||
+                    (prevs == LAST_ACK && curs != CLOSED)
+               )
                 cr_assert_fail("Invalid transition: %s -> %s", tcp_str(prevs), tcp_str(curs));
         }
 
@@ -83,8 +77,7 @@ static enum chitcpd_debug_response passive_close_checker(int sockfd, enum chitcp
 
 static enum chitcpd_debug_response simultaneous_close_checker(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
     }
 
@@ -94,37 +87,32 @@ static enum chitcpd_debug_response simultaneous_close_checker(int sockfd, enum c
      * The following code prevents the FIN packet from being
      * delivered if the socket is still in an ESTABLISHED state.
      */
-    if (event_flag == DBG_EVT_INCOMING_PACKET)
-    {
+    if (event_flag == DBG_EVT_INCOMING_PACKET) {
         tcp_state_t curs = state_info->tcp_state;
 
-        if (curs == ESTABLISHED)
-        {
+        if (curs == ESTABLISHED) {
             return DBG_RESP_WITHHOLD;
         }
     }
 
-    if (event_flag == DBG_EVT_TCP_STATE_CHANGE)
-    {
+    if (event_flag == DBG_EVT_TCP_STATE_CHANGE) {
         tcp_state_t curs = state_info->tcp_state;
         cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
 
-        if(saved_state_info)
-        {
+        if(saved_state_info) {
             cr_assert(IS_VALID_TCP_STATE(saved_state_info->tcp_state), "Unknown (previous) TCP state.");
             tcp_state_t prevs = saved_state_info->tcp_state;
 
             if ( (prevs == ESTABLISHED && curs != FIN_WAIT_1) ||
-                 (prevs == FIN_WAIT_1 && curs != CLOSING) ||
-                 (prevs == CLOSING && curs != TIME_WAIT)  ||
-                 (prevs == TIME_WAIT && curs != CLOSED)
-            )
+                    (prevs == FIN_WAIT_1 && curs != CLOSING) ||
+                    (prevs == CLOSING && curs != TIME_WAIT)  ||
+                    (prevs == TIME_WAIT && curs != CLOSED)
+               )
                 cr_assert_fail("Invalid transition: %s -> %s", tcp_str(prevs), tcp_str(curs));
 
             /* If there was a FIN packet waiting to be delivered,
              * release it now. */
-            if (prevs == ESTABLISHED && curs == FIN_WAIT_1)
-            {
+            if (prevs == ESTABLISHED && curs == FIN_WAIT_1) {
                 chitcpd_debug_save_socket_state(state_info);
                 return DBG_RESP_DRAW_WITHHELD;
             }

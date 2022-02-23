@@ -31,29 +31,21 @@ static tcp_state_t drop_in_state;
 /* A simple debug handler that will drop up to drop_count packets. */
 enum chitcpd_debug_response drop_packets(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
-    }
-    else if (event_flag == DBG_EVT_INCOMING_PACKET || event_flag == DBG_EVT_OUTGOING_PACKET)
-    {
+    } else if (event_flag == DBG_EVT_INCOMING_PACKET || event_flag == DBG_EVT_OUTGOING_PACKET) {
         tcp_state_t curs;
 
-        if(state_info)
-        {
+        if(state_info) {
             curs = state_info->tcp_state;
             cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
         }
 
-        if ( (drop_in_passive && state_info == NULL) || (drop_in_active && state_info != NULL && curs == drop_in_state) )
-        {
-            if (dropped < drop_count)
-            {
+        if ( (drop_in_passive && state_info == NULL) || (drop_in_active && state_info != NULL && curs == drop_in_state) ) {
+            if (dropped < drop_count) {
                 dropped++;
                 return DBG_RESP_DROP;
-            }
-            else
-            {
+            } else {
                 return DBG_RESP_NONE;
             }
         }
@@ -70,28 +62,20 @@ static unsigned int seed = 0; /* Change this number to change the dropped packet
 enum chitcpd_debug_response drop_random_packets(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
 
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
-    }
-    else if (event_flag == DBG_EVT_INCOMING_PACKET)
-    {
+    } else if (event_flag == DBG_EVT_INCOMING_PACKET) {
         tcp_state_t curs;
 
-        if(state_info)
-        {
+        if(state_info) {
             curs = state_info->tcp_state;
             cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
 
-            if(curs == ESTABLISHED)
-            {
+            if(curs == ESTABLISHED) {
                 float r = (float)rand_r(&seed)/(float)(RAND_MAX);
-                if (r < drop_percentage)
-                {
+                if (r < drop_percentage) {
                     return DBG_RESP_DROP;
-                }
-                else
-                {
+                } else {
                     return DBG_RESP_NONE;
                 }
             }
@@ -111,27 +95,19 @@ static int packet_sequence_size = 0;
 
 enum chitcpd_debug_response out_of_order_handler(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
-    }
-    else if (event_flag == DBG_EVT_INCOMING_PACKET)
-    {
+    } else if (event_flag == DBG_EVT_INCOMING_PACKET) {
 
-        if(state_info)
-        {
+        if(state_info) {
             tcp_state_t curs = state_info->tcp_state;
 
             cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
-            if (curs == ESTABLISHED)
-            {
+            if (curs == ESTABLISHED) {
                 enum chitcpd_debug_response response;
-                if (packet_id < packet_sequence_size)
-                {
+                if (packet_id < packet_sequence_size) {
                     response = packet_sequence[packet_id];
-                }
-                else
-                {
+                } else {
                     response = DBG_RESP_NONE;
                 }
                 packet_id++;
@@ -153,7 +129,7 @@ Test(unreliable_conn_init, drop_syn, .init = chitcpd_and_tester_setup, .fini = c
     drop_in_active = FALSE;
 
     chitcp_tester_server_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -176,7 +152,7 @@ Test(unreliable_conn_init, drop_synack, .init = chitcpd_and_tester_setup, .fini 
     drop_in_active = TRUE;
 
     chitcp_tester_client_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -202,7 +178,7 @@ Test(unreliable_conn_init, drop_ack, .init = chitcpd_and_tester_setup, .fini = c
     drop_in_active = TRUE;
 
     chitcp_tester_server_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     chitcp_tester_client_run_set(tester, sender, nbytes);
     chitcp_tester_server_run_set(tester, receiver, nbytes);
@@ -241,7 +217,7 @@ Test(unreliable_conn_term, drop_fin_1, .init = chitcpd_and_tester_setup, .fini =
     drop_in_active = TRUE;
 
     chitcp_tester_server_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -273,7 +249,7 @@ Test(unreliable_conn_term, drop_fin_2, .init = chitcpd_and_tester_setup, .fini =
     drop_in_active = TRUE;
 
     chitcp_tester_client_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -308,7 +284,7 @@ Test(unreliable_data_transfer, drop_single_packet, .init = chitcpd_and_tester_se
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -341,7 +317,7 @@ Test(unreliable_data_transfer, drop_multiple_packets, .init = chitcpd_and_tester
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -373,7 +349,7 @@ Test(unreliable_data_transfer, go_back_n, .init = chitcpd_and_tester_setup, .fin
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -488,7 +464,7 @@ Test(unreliable_data_transfer, random_drop_025_1, .init = chitcpd_and_tester_set
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -515,7 +491,7 @@ Test(unreliable_data_transfer, random_drop_025_2, .init = chitcpd_and_tester_set
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -542,7 +518,7 @@ Test(unreliable_data_transfer, random_drop_025_3, .init = chitcpd_and_tester_set
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -569,7 +545,7 @@ Test(unreliable_data_transfer, random_drop_05_1, .init = chitcpd_and_tester_setu
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -596,7 +572,7 @@ Test(unreliable_data_transfer, random_drop_05_2, .init = chitcpd_and_tester_setu
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -623,7 +599,7 @@ Test(unreliable_data_transfer, random_drop_05_3, .init = chitcpd_and_tester_setu
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -650,7 +626,7 @@ Test(unreliable_data_transfer, random_drop_10_1, .init = chitcpd_and_tester_setu
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -677,7 +653,7 @@ Test(unreliable_data_transfer, random_drop_10_2, .init = chitcpd_and_tester_setu
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -704,7 +680,7 @@ Test(unreliable_data_transfer, random_drop_10_3, .init = chitcpd_and_tester_setu
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, drop_random_packets,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -771,7 +747,7 @@ Test(unreliable_out_of_order, out_of_order_1, .init = chitcpd_and_tester_setup, 
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, out_of_order_handler,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -806,7 +782,7 @@ Test(unreliable_out_of_order, out_of_order_2, .init = chitcpd_and_tester_setup, 
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, out_of_order_handler,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -847,7 +823,7 @@ Test(unreliable_out_of_order, out_of_order_3, .init = chitcpd_and_tester_setup, 
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, out_of_order_handler,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 
@@ -899,7 +875,7 @@ Test(unreliable_out_of_order, full_window_1, .init = chitcpd_and_tester_setup, .
     chitcp_tester_server_run_set(tester, receiver, nbytes);
 
     chitcp_tester_server_set_debug(tester, out_of_order_handler,
-    DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
+                                   DBG_EVT_PENDING_CONNECTION | DBG_EVT_INCOMING_PACKET);
 
     tester_connect();
 

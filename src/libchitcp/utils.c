@@ -48,8 +48,7 @@
 
 const char *tcp_str(tcp_state_t state);
 
-const char *tcp_state_names[] =
-{
+const char *tcp_state_names[] = {
     "CLOSED",
     "LISTEN",
     "SYN_RCVD",
@@ -67,48 +66,43 @@ const char *tcp_state_names[] =
 /* See utils.h */
 uint16_t cksum (const void *_data, int len)
 {
-      const uint8_t *data = _data;
-      uint32_t sum;
+    const uint8_t *data = _data;
+    uint32_t sum;
 
-      for (sum = 0;len >= 2; data += 2, len -= 2)
-      {
+    for (sum = 0; len >= 2; data += 2, len -= 2) {
         sum += data[0] << 8 | data[1];
-      }
+    }
 
-      if (len > 0)
-      {
+    if (len > 0) {
         sum += data[0] << 8;
-      }
+    }
 
-      while (sum > 0xffff)
-      {
+    while (sum > 0xffff) {
         sum = (sum >> 16) + (sum & 0xffff);
-      }
+    }
 
-      sum = htons (~sum);
+    sum = htons (~sum);
 
-      return sum ? sum : 0xffff;
+    return sum ? sum : 0xffff;
 }
 
 
 int chitcp_socket_send(int socket, const void *buffer, int length)
 {
-  int nbytes, nleft, nwritten = 0;
+    int nbytes, nleft, nwritten = 0;
 
-  nleft = length;
+    nleft = length;
 
-  while ( nleft > 0 )
-  {
-      if ( (nbytes = chisocket_send(socket, buffer, nleft, 0)) == -1 )
-      {
-          perror("chisocket_send failed");
-          return -1;
-      }
-      nleft  -= nbytes;
-      buffer += nbytes;
-      nwritten += nbytes;
-  }
-  return nwritten;
+    while ( nleft > 0 ) {
+        if ( (nbytes = chisocket_send(socket, buffer, nleft, 0)) == -1 ) {
+            perror("chisocket_send failed");
+            return -1;
+        }
+        nleft  -= nbytes;
+        buffer += nbytes;
+        nwritten += nbytes;
+    }
+    return nwritten;
 }
 
 int chitcp_socket_recv(int socket, void *buffer, int length)
@@ -119,22 +113,16 @@ int chitcp_socket_recv(int socket, void *buffer, int length)
     recv_buf_ptr = buffer;
     nrecv = length;
 
-    while (nrecv != 0)
-    {
+    while (nrecv != 0) {
         int nbytes = chisocket_recv(socket, recv_buf_ptr, nrecv, 0);
 
-        if(nbytes == 0)
-        {
+        if(nbytes == 0) {
             nrecv -= nbytes;
             return length - nrecv;
-        }
-        else if (nbytes == -1)
-        {
+        } else if (nbytes == -1) {
             perror("chisocket_recv() failed");
             return -1;
-        }
-        else
-        {
+        } else {
             recv_buf_ptr += nbytes;
             nrecv -= nbytes;
         }
@@ -148,12 +136,9 @@ int chitcp_unix_socket(char* buf, int buflen)
     char *env;
     env = getenv("CHITCPD_SOCK");
 
-    if (env)
-    {
+    if (env) {
         strncpy(buf, env, buflen);
-    }
-    else
-    {
+    } else {
         char *login;
         login = getlogin();
 

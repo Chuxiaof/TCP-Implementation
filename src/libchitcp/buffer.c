@@ -78,8 +78,7 @@ int circular_buffer_write(circular_buffer_t *buf, uint8_t *data, uint32_t len, b
         return CHITCP_EINVAL;
 
     pthread_mutex_lock(&buf->lock);
-    if(buf->count + len > buf->maxsize && !blocking)
-    {
+    if(buf->count + len > buf->maxsize && !blocking) {
         pthread_mutex_unlock(&buf->lock);
         return CHITCP_EWOULDBLOCK;
     }
@@ -90,13 +89,11 @@ int circular_buffer_write(circular_buffer_t *buf, uint8_t *data, uint32_t len, b
     if (len > buf->maxsize)
         len = buf->maxsize;
 
-    while (written < len)
-    {
+    while (written < len) {
         while(buf->count == buf->maxsize)
             pthread_cond_wait(&buf->cv_notfull, &buf->lock);
 
-        if(buf->closed)
-        {
+        if(buf->closed) {
             pthread_mutex_unlock(&buf->lock);
             return written;
         }
@@ -108,8 +105,7 @@ int circular_buffer_write(circular_buffer_t *buf, uint8_t *data, uint32_t len, b
         else
             towrite = buf->maxsize - buf->count;
 
-        if(buf->end + towrite > buf->maxsize)
-        {
+        if(buf->end + towrite > buf->maxsize) {
             int to_max = buf->maxsize - buf->end;
             int after_max = towrite - to_max;
 
@@ -117,9 +113,7 @@ int circular_buffer_write(circular_buffer_t *buf, uint8_t *data, uint32_t len, b
             memcpy(buf->data, data + written + to_max, after_max);
 
             buf->end = after_max;
-        }
-        else
-        {
+        } else {
             memcpy(buf->data + buf->end, data + written, towrite);
             buf->end += towrite;
         }
@@ -141,8 +135,7 @@ int __circular_buffer_read(circular_buffer_t *buf, uint8_t *dst, uint32_t len, u
         return CHITCP_EINVAL;
 
     pthread_mutex_lock(&buf->lock);
-    if(buf->count == 0 && !blocking)
-    {
+    if(buf->count == 0 && !blocking) {
         pthread_mutex_unlock(&buf->lock);
         return CHITCP_EWOULDBLOCK;
     }
@@ -150,8 +143,7 @@ int __circular_buffer_read(circular_buffer_t *buf, uint8_t *dst, uint32_t len, u
     while(buf->count == 0 && !buf->closed)
         pthread_cond_wait(&buf->cv_notempty, &buf->lock);
 
-    if(buf->closed && buf->count == 0)
-    {
+    if(buf->closed && buf->count == 0) {
         pthread_mutex_unlock(&buf->lock);
         return 0;
     }
@@ -166,28 +158,23 @@ int __circular_buffer_read(circular_buffer_t *buf, uint8_t *dst, uint32_t len, u
     else
         toread = buf->count - offset;
 
-    if(start + toread > buf->maxsize)
-    {
+    if(start + toread > buf->maxsize) {
         int to_max = buf->maxsize - start;
         int after_max = toread - to_max;
 
-        if(dst)
-        {
+        if(dst) {
             memcpy(dst, buf->data + start, to_max);
             memcpy(dst+to_max, buf->data, after_max);
         }
 
         start = after_max;
-    }
-    else
-    {
+    } else {
         if(dst)
             memcpy(dst, buf->data + start, toread);
         start += toread;
     }
 
-    if(!peeking)
-    {
+    if(!peeking) {
         buf->start = start;
         buf->count -= toread;
         buf->seq_start += toread;
@@ -257,8 +244,7 @@ int circular_buffer_dump(circular_buffer_t *buf)
     printf("start: %i\n", buf->start);
     printf("end: %i\n", buf->end);
 
-    for(int i=0; i<buf->maxsize; i++)
-    {
+    for(int i=0; i<buf->maxsize; i++) {
         printf("data[%i] = %i", i, buf->data[i]);
         if(i==buf->start)
             printf("  <<< START");

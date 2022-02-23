@@ -34,8 +34,7 @@ int main(int argc, char *argv[])
 
     /* Use getopt to fetch the host and port */
     while ((opt = getopt(argc, argv, "p:sv")) != -1)
-        switch (opt)
-        {
+        switch (opt) {
         case 'p':
             port = strdup(optarg);
             break;
@@ -60,8 +59,7 @@ int main(int argc, char *argv[])
     serverAddr.sin_port = htons(iport); // The echo protocol
     serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
-    if(step)
-    {
+    if(step) {
         printf("Press any key to create the socket...");
         getchar();
     }
@@ -70,52 +68,43 @@ int main(int argc, char *argv[])
                                     SOCK_STREAM,   // Type: Full-duplex stream (reliable)
                                     IPPROTO_TCP);  // Protocol: TCP;
 
-    if(serverSocket == -1)
-    {
+    if(serverSocket == -1) {
         perror("Could not create socket");
         exit(-1);
     }
 
-    if(step)
-    {
+    if(step) {
         printf("Press any key to bind the socket...");
         getchar();
     }
 
-    if(chisocket_bind(serverSocket, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) == -1)
-    {
+    if(chisocket_bind(serverSocket, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) == -1) {
         perror("Socket bind() failed");
         chisocket_close(serverSocket);
         exit(-1);
     }
 
-    if(step)
-    {
+    if(step) {
         printf("Press any key to make the socket listen...");
         getchar();
     }
 
-    if(chisocket_listen(serverSocket, 5) == -1)
-    {
+    if(chisocket_listen(serverSocket, 5) == -1) {
         perror("Socket listen() failed");
         chisocket_close(serverSocket);
         exit(-1);
     }
 
-    if(step)
-    {
+    if(step) {
         printf("Press any key to accept a connection...");
         getchar();
-    }
-    else
-    {
+    } else {
         printf("Waiting for a connection on port %u ...\n", ntohs(serverAddr.sin_port));
     }
 
 
     sinSize = sizeof(struct sockaddr_in);
-    if( (clientSocket = chisocket_accept(serverSocket, (struct sockaddr *) &clientAddr, &sinSize)) == -1)
-    {
+    if( (clientSocket = chisocket_accept(serverSocket, (struct sockaddr *) &clientAddr, &sinSize)) == -1) {
         perror("Socket accept() failed");
         chisocket_close(serverSocket);
         exit(-1);
@@ -126,28 +115,20 @@ int main(int argc, char *argv[])
 
     char buf[536 + 1];
 
-    while(1)
-    {
+    while(1) {
         int nbytes = chisocket_recv(clientSocket, buf, 536, 0);
-        if(nbytes == 0)
-        {
+        if(nbytes == 0) {
             break;
-        }
-        else if (nbytes == -1)
-        {
+        } else if (nbytes == -1) {
             perror("Socket recv() failed");
             chisocket_close(clientSocket);
             chisocket_close(serverSocket);
             exit(-1);
-        }
-        else
-        {
-            if(verbose)
-            {
+        } else {
+            if(verbose) {
                 printf("Received: %.*s\n", nbytes, buf);
             }
-            if (chitcp_socket_send(clientSocket, buf, nbytes) == -1)
-            {
+            if (chitcp_socket_send(clientSocket, buf, nbytes) == -1) {
                 chisocket_close(clientSocket);
                 chisocket_close(serverSocket);
                 exit(-1);
@@ -156,36 +137,31 @@ int main(int argc, char *argv[])
     }
 
     printf("Peer has closed connection.\n");
-    if(step)
-    {
+    if(step) {
         printf("Press any key to close active socket...");
         getchar();
     }
 
-    if (chisocket_close(clientSocket) == -1)
-    {
+    if (chisocket_close(clientSocket) == -1) {
         perror("Could not close socket");
         exit(-1);
     }
 
     printf("Active socket closed.\n");
 
-    if(step)
-    {
+    if(step) {
         printf("Press any key to close passive socket...");
         getchar();
     }
 
-    if (chisocket_close(serverSocket) == -1)
-    {
+    if (chisocket_close(serverSocket) == -1) {
         perror("Could not close passive socket");
         exit(-1);
     }
 
     printf("Passive socket closed.\n");
 
-    if (step)
-    {
+    if (step) {
         printf("Press any key to exit...");
         getchar();
     }

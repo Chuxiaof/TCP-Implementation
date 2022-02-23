@@ -17,29 +17,24 @@
 
 static enum chitcpd_debug_response check_states(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
     }
 
-    if (event_flag == DBG_EVT_TCP_STATE_CHANGE)
-    {
+    if (event_flag == DBG_EVT_TCP_STATE_CHANGE) {
         tcp_state_t curs = state_info->tcp_state;
 
         cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
 
-        if(!saved_state_info)
-        {
+        if(!saved_state_info) {
             cr_assert(curs == SYN_SENT || curs == SYN_RCVD,
-                          "%s is not a valid initial state", tcp_str(state_info->tcp_state));
-        }
-        else
-        {
+                      "%s is not a valid initial state", tcp_str(state_info->tcp_state));
+        } else {
             cr_assert(IS_VALID_TCP_STATE(saved_state_info->tcp_state), "Unknown (previous) TCP state.");
             tcp_state_t prevs = saved_state_info->tcp_state;
 
             if ( (prevs == SYN_SENT && curs != ESTABLISHED) ||
-                 (prevs == SYN_RCVD && curs != ESTABLISHED)  )
+                    (prevs == SYN_RCVD && curs != ESTABLISHED)  )
                 cr_assert_fail("Invalid transition: %s -> %s", tcp_str(prevs), tcp_str(curs));
         }
 
@@ -57,37 +52,32 @@ static enum chitcpd_debug_response check_states(int sockfd, enum chitcpd_debug_e
 
 static enum chitcpd_debug_response check_vars(int sockfd, enum chitcpd_debug_event event_flag, debug_socket_state_t *state_info, debug_socket_state_t *saved_state_info, int new_sockfd)
 {
-    if (event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    if (event_flag == DBG_EVT_PENDING_CONNECTION) {
         return DBG_RESP_ACCEPT_MONITOR;
     }
 
-    if (event_flag == DBG_EVT_TCP_STATE_CHANGE)
-    {
+    if (event_flag == DBG_EVT_TCP_STATE_CHANGE) {
         tcp_state_t curs = state_info->tcp_state;
         cr_assert(IS_VALID_TCP_STATE(curs), "Unknown TCP state.");
 
-        if(!saved_state_info)
-        {
+        if(!saved_state_info) {
             cr_assert(curs == SYN_SENT || curs == SYN_RCVD,
-                          "%s is not a valid initial state", tcp_str(curs));
+                      "%s is not a valid initial state", tcp_str(curs));
             cr_assert(state_info->SND_UNA + 1 == state_info->SND_NXT,
-                          "In state %s, SND.UNA + 1 != SND.NXT (got SND.UNA=%i, SND.NXT=%i",
-                          tcp_str(curs), state_info->SND_UNA, state_info->SND_NXT);
-        }
-        else
-        {
+                      "In state %s, SND.UNA + 1 != SND.NXT (got SND.UNA=%i, SND.NXT=%i",
+                      tcp_str(curs), state_info->SND_UNA, state_info->SND_NXT);
+        } else {
             cr_assert(IS_VALID_TCP_STATE(saved_state_info->tcp_state), "Unknown (previous) TCP state.");
             tcp_state_t prevs = saved_state_info->tcp_state;
 
             if ( (prevs == SYN_SENT && curs != ESTABLISHED) ||
-                 (prevs == SYN_RCVD && curs != ESTABLISHED)  )
+                    (prevs == SYN_RCVD && curs != ESTABLISHED)  )
                 cr_assert_fail("Invalid transition: %s -> %s", tcp_str(prevs), tcp_str(curs));
 
             if (prevs == SYN_SENT || prevs == SYN_RCVD)
                 cr_assert(state_info->SND_UNA  == state_info->SND_NXT,
-                              "In state %s, SND.UNA != SND.NXT (got SND.UNA=%i, SND.NXT=%i",
-                              tcp_str(curs), state_info->SND_UNA, state_info->SND_NXT);
+                          "In state %s, SND.UNA != SND.NXT (got SND.UNA=%i, SND.NXT=%i",
+                          tcp_str(curs), state_info->SND_UNA, state_info->SND_NXT);
         }
 
         chitcpd_debug_save_socket_state(state_info);
@@ -107,11 +97,11 @@ Test(conn_init, 3way_states, .init = chitcpd_and_tester_setup, .fini = chitcpd_a
     int rc;
 
     rc = chitcp_tester_server_set_debug(tester, check_states,
-            DBG_EVT_PENDING_CONNECTION| DBG_EVT_TCP_STATE_CHANGE);
+                                        DBG_EVT_PENDING_CONNECTION| DBG_EVT_TCP_STATE_CHANGE);
     cr_assert(rc == 0, "Error setting debug handler (server)");
 
     rc = chitcp_tester_client_set_debug(tester, check_states,
-            DBG_EVT_TCP_STATE_CHANGE);
+                                        DBG_EVT_TCP_STATE_CHANGE);
     cr_assert(rc == 0, "Error setting debug handler (client)");
 
     tester_connect();
@@ -128,11 +118,11 @@ Test(conn_init, 3way_vars, .init = chitcpd_and_tester_setup, .fini = chitcpd_and
     int rc;
 
     rc = chitcp_tester_server_set_debug(tester, check_vars,
-            DBG_EVT_PENDING_CONNECTION| DBG_EVT_TCP_STATE_CHANGE);
+                                        DBG_EVT_PENDING_CONNECTION| DBG_EVT_TCP_STATE_CHANGE);
     cr_assert(rc == 0, "Error setting debug handler (server)");
 
     rc = chitcp_tester_client_set_debug(tester, check_vars,
-            DBG_EVT_TCP_STATE_CHANGE);
+                                        DBG_EVT_TCP_STATE_CHANGE);
     cr_assert(rc == 0, "Error setting debug handler (client)");
 
     tester_connect();

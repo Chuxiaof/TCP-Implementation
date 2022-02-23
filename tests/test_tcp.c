@@ -6,15 +6,15 @@
 #include <pthread.h>
 #include <signal.h>
 
-int main(int argc, char *argv[]) {
+int main(int argc, char *argv[])
+{
     struct criterion_test_set *tests = criterion_initialize();
 
     /* SIGPIPE handling */
     sigset_t new;
     sigemptyset (&new);
     sigaddset(&new, SIGPIPE);
-    if (pthread_sigmask(SIG_BLOCK, &new, NULL) != 0)
-    {
+    if (pthread_sigmask(SIG_BLOCK, &new, NULL) != 0) {
         perror("Unable to mask SIGPIPE");
         exit(-1);
     }

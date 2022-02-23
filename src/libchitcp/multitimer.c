@@ -45,23 +45,19 @@
 #include "chitcp/multitimer.h"
 #include "chitcp/log.h"
 
-struct worker_args
-{
+struct worker_args {
     multi_timer_t *mt;
 };
 
 void *multiple_timer_machine(void *args);
 
 static int timespec_cmp(single_timer_t * timer_x, single_timer_t * timer_y)
-{   
+{
     struct timespec *x= &timer_x->expire_time;
     struct timespec *y= &timer_y->expire_time;
-    if (x->tv_sec < y->tv_sec)
-    {
+    if (x->tv_sec < y->tv_sec) {
         return -1;
-    }
-    else if (x->tv_sec > y->tv_sec)
-    {
+    } else if (x->tv_sec > y->tv_sec) {
         return 1;
     }
     return x->tv_nsec - y->tv_nsec;
@@ -86,14 +82,12 @@ int timespec_subtract(struct timespec *result, struct timespec *x, struct timesp
     tmp.tv_nsec = y->tv_nsec;
 
     /* Perform the carry for the later subtraction by updating tmp. */
-    if (x->tv_nsec < tmp.tv_nsec)
-    {
+    if (x->tv_nsec < tmp.tv_nsec) {
         uint64_t sec = (tmp.tv_nsec - x->tv_nsec) / SECOND + 1;
         tmp.tv_nsec -= SECOND * sec;
         tmp.tv_sec += sec;
     }
-    if (x->tv_nsec - tmp.tv_nsec > SECOND)
-    {
+    if (x->tv_nsec - tmp.tv_nsec > SECOND) {
         uint64_t sec = (x->tv_nsec - tmp.tv_nsec) / SECOND;
         tmp.tv_nsec += SECOND * sec;
         tmp.tv_sec -= sec;
@@ -114,13 +108,11 @@ int mt_init(multi_timer_t *mt, uint16_t num_timers)
     mt->timer_num = num_timers;
 
     mt->all_timers = calloc(num_timers, sizeof(single_timer_t));
-    if (mt->all_timers == NULL)
-    {
+    if (mt->all_timers == NULL) {
         return CHITCP_ENOMEM;
     }
     uint16_t id = 0;
-    for (uint16_t i = 0; i < num_timers; i++)
-    {
+    for (uint16_t i = 0; i < num_timers; i++) {
         single_timer_t *cur = &mt->all_timers[i];
         cur->id = id++;
         cur->active = false;
@@ -133,8 +125,7 @@ int mt_init(multi_timer_t *mt, uint16_t num_timers)
     /* create multi-timer thread */
     struct worker_args *wa = calloc(1, sizeof(struct worker_args));
     wa->mt = mt;
-    if (pthread_create(&mt->multiple_timer_thread, NULL, multiple_timer_machine, wa) != 0)
-    {
+    if (pthread_create(&mt->multiple_timer_thread, NULL, multiple_timer_machine, wa) != 0) {
         chilog(ERROR, "Could not create a multitimer thread");
         free(wa);
         pthread_exit(NULL);
@@ -146,8 +137,7 @@ int mt_init(multi_timer_t *mt, uint16_t num_timers)
 /* See multitimer.h */
 int mt_free(multi_timer_t *mt)
 {
-    if (mt)
-    {
+    if (mt) {
         // stop the timer thread
         pthread_cancel(mt->multiple_timer_thread);
         // free related memory
@@ -161,8 +151,7 @@ int mt_free(multi_timer_t *mt)
 /* See multitimer.h */
 int mt_get_timer_by_id(multi_timer_t *mt, uint16_t id, single_timer_t **timer)
 {
-    if (id < 0 || id >= mt->timer_num)
-    {
+    if (id < 0 || id >= mt->timer_num) {
         return CHITCP_EINVAL;
     }
     *timer = &mt->all_timers[id];
@@ -173,8 +162,7 @@ int mt_get_timer_by_id(multi_timer_t *mt, uint16_t id, single_timer_t **timer)
 int mt_set_timer(multi_timer_t *mt, uint16_t id, uint64_t timeout, mt_callback_func callback, void *callback_args)
 {
     single_timer_t *timer;
-    if (mt_get_timer_by_id(mt, id, &timer) == CHITCP_EINVAL || timer->active)
-    {
+    if (mt_get_timer_by_id(mt, id, &timer) == CHITCP_EINVAL || timer->active) {
         return CHITCP_EINVAL;
     }
 
@@ -194,8 +182,7 @@ int mt_set_timer(multi_timer_t *mt, uint16_t id, uint64_t timeout, mt_callback_f
 int mt_cancel_timer(multi_timer_t *mt, uint16_t id)
 {
     single_timer_t *timer;
-    if (mt_get_timer_by_id(mt, id, &timer) == CHITCP_EINVAL || !timer->active)
-    {
+    if (mt_get_timer_by_id(mt, id, &timer) == CHITCP_EINVAL || !timer->active) {
         return CHITCP_EINVAL;
     }
 
@@ -214,11 +201,10 @@ int mt_set_timer_name(multi_timer_t *mt, uint16_t id, const char *name)
 {
     /* Your code here */
     single_timer_t *timer;
-    if (mt_get_timer_by_id(mt, id, &timer) == CHITCP_EINVAL || !timer->active)
-    {
+    if (mt_get_timer_by_id(mt, id, &timer) == CHITCP_EINVAL || !timer->active) {
         return CHITCP_EINVAL;
     }
-    
+
     pthread_mutex_lock(&mt->lock);
     strncpy(timer->name, name, strlen(name));
     pthread_mutex_unlock(&mt->lock);
@@ -238,8 +224,7 @@ int mt_chilog_single_timer(loglevel_t level, single_timer_t *timer)
     struct timespec now, diff;
     clock_gettime(CLOCK_REALTIME, &now);
 
-    if (timer->active)
-    {
+    if (timer->active) {
         /* Compute the appropriate value for "diff" here; it should contain
          * the time remaining until the timer times out.
          * Note: The timespec_subtract function can come in handy here*/
@@ -248,8 +233,7 @@ int mt_chilog_single_timer(loglevel_t level, single_timer_t *timer)
         diff.tv_sec = res->tv_sec;
         diff.tv_nsec = res->tv_nsec;
         chilog(level, "%i %s %lis %lins", timer->id, timer->name, diff.tv_sec, diff.tv_nsec);
-    }
-    else
+    } else
         chilog(level, "%i %s", timer->id, timer->name);
 
     return CHITCP_OK;
@@ -278,19 +262,14 @@ void *multiple_timer_machine(void *args)
     struct worker_args *wa = (struct worker_args *)args;
     multi_timer_t *mt = wa->mt;
 
-    while (true)
-    {
+    while (true) {
         pthread_mutex_lock(&mt->lock);
-        if (!mt->active_timers)
-        {
+        if (!mt->active_timers) {
             pthread_cond_wait(&mt->condvar, &mt->lock);
-        }
-        else
-        {
+        } else {
             single_timer_t *first_timer = mt->active_timers;
             int rv = pthread_cond_timedwait(&mt->condvar, &mt->lock, &first_timer->expire_time);
-            if (rv == ETIMEDOUT)
-            {   
+            if (rv == ETIMEDOUT) {
                 first_timer->num_timeouts++;
                 first_timer->callback(mt, first_timer, first_timer->callback_args);
                 first_timer->active = false;

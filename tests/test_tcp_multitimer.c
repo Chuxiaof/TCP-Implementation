@@ -21,8 +21,7 @@ void null_callback(multi_timer_t *mt, single_timer_t *timer, void *args)
 
 /* Timing callback. Takes an array of timespecs, and set
  * item idx to the current time. */
-struct callback_args
-{
+struct callback_args {
     struct timespec *timeouts;
     uint8_t idx;
 };
@@ -96,8 +95,7 @@ Test(multitimer, get_timer_by_id, .init = log_setup)
     rc = mt_init(&mt, NUM_TIMERS);
     cr_assert_eq(rc, CHITCP_OK);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
 
@@ -259,16 +257,14 @@ Test(multitimer, set_multiple_timers_null_callback, .init = log_setup, .timeout 
     rc = mt_init(&mt, NUM_TIMERS);
     cr_assert_eq(rc, CHITCP_OK);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_set_timer(&mt, i, 50*MILLISECOND * (i+1), null_callback, NULL);
         cr_assert_eq(rc, CHITCP_OK);
     }
 
     usleep((NUM_TIMERS+1)*50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
         cr_assert_eq(timer->active, false);
@@ -291,16 +287,14 @@ Test(multitimer, set_some_timers_null_callback, .init = log_setup, .timeout = 2.
     rc = mt_init(&mt, NUM_TIMERS);
     cr_assert_eq(rc, CHITCP_OK);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i+=2)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i+=2) {
         rc = mt_set_timer(&mt, i, 50*MILLISECOND * (i+1), null_callback, NULL);
         cr_assert_eq(rc, CHITCP_OK);
     }
 
     usleep((NUM_TIMERS+1)*50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
         cr_assert_eq(timer->active, false);
@@ -327,7 +321,7 @@ void check_timer_timeout(struct timespec* start_time, struct timespec* timeout_t
     rel_diff = ((double) abs_diff) / expected_timeout;
 
     cr_assert_leq(rel_diff, TIMER_DIFF_TOLERANCE, "Expected timeout to be %lu, got %lu (rel diff %f > %f)",
-                                                  expected_timeout, actual_timeout, rel_diff, TIMER_DIFF_TOLERANCE);
+                  expected_timeout, actual_timeout, rel_diff, TIMER_DIFF_TOLERANCE);
 }
 
 /* Sets a single timer with the timing callback and tests that it
@@ -342,8 +336,7 @@ Test(multitimer, set_single_timer_test_timing, .init = log_setup, .timeout = 2.0
     struct timespec *timeouts = calloc(NUM_TIMERS, sizeof(struct timespec));
     struct callback_args *args = calloc(NUM_TIMERS, sizeof(struct callback_args));
 
-    for(int i=0; i<NUM_TIMERS; i++)
-    {
+    for(int i=0; i<NUM_TIMERS; i++) {
         args[i].timeouts = timeouts;
         args[i].idx = i;
     }
@@ -383,8 +376,7 @@ Test(multitimer, set_and_reset_single_timer_test_timing, .init = log_setup, .tim
     struct timespec *timeouts = calloc(NUM_TIMERS, sizeof(struct timespec));
     struct callback_args *args = calloc(NUM_TIMERS, sizeof(struct callback_args));
 
-    for(int i=0; i<NUM_TIMERS; i++)
-    {
+    for(int i=0; i<NUM_TIMERS; i++) {
         args[i].timeouts = timeouts;
         args[i].idx = i;
     }
@@ -446,8 +438,7 @@ Test(multitimer, set_multiple_timer_test_timing, .init = log_setup, .timeout = 2
     struct timespec *timeouts = calloc(NUM_TIMERS, sizeof(struct timespec));
     struct callback_args *args = calloc(NUM_TIMERS, sizeof(struct callback_args));
 
-    for(int i=0; i<NUM_TIMERS; i++)
-    {
+    for(int i=0; i<NUM_TIMERS; i++) {
         args[i].timeouts = timeouts;
         args[i].idx = i;
     }
@@ -457,16 +448,14 @@ Test(multitimer, set_multiple_timer_test_timing, .init = log_setup, .timeout = 2
     rc = mt_init(&mt, NUM_TIMERS);
     cr_assert_eq(rc, CHITCP_OK);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_set_timer(&mt, i, 50*MILLISECOND * (i+1), timing_callback, &args[i]);
         cr_assert_eq(rc, CHITCP_OK);
     }
 
     usleep((NUM_TIMERS+1)*50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
         cr_assert_eq(timer->active, false);
@@ -493,8 +482,7 @@ Test(multitimer, set_multiple_timer_one_cancel_test_timing, .init = log_setup, .
     struct timespec *timeouts = calloc(NUM_TIMERS, sizeof(struct timespec));
     struct callback_args *args = calloc(NUM_TIMERS, sizeof(struct callback_args));
 
-    for(int i=0; i<NUM_TIMERS; i++)
-    {
+    for(int i=0; i<NUM_TIMERS; i++) {
         args[i].timeouts = timeouts;
         args[i].idx = i;
     }
@@ -504,8 +492,7 @@ Test(multitimer, set_multiple_timer_one_cancel_test_timing, .init = log_setup, .
     rc = mt_init(&mt, NUM_TIMERS);
     cr_assert_eq(rc, CHITCP_OK);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_set_timer(&mt, i, 50*MILLISECOND * (i+1), timing_callback, &args[i]);
         cr_assert_eq(rc, CHITCP_OK);
     }
@@ -517,21 +504,17 @@ Test(multitimer, set_multiple_timer_one_cancel_test_timing, .init = log_setup, .
 
     usleep(8*50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
 
 
-        if(i==TIMER_IDX)
-        {
+        if(i==TIMER_IDX) {
             cr_assert_eq(timer->active, false, "Cancelled timer still appears active.", i);
             cr_assert_eq(timer->num_timeouts, 0, "Cancelled timer has a non-zero number of timeouts");
             cr_assert_eq(timeouts[TIMER_IDX].tv_sec, 0, "A timeout time was recorded for a cancelled timer");
             cr_assert_eq(timeouts[TIMER_IDX].tv_nsec, 0, "A timeout time was recorded for a cancelled timer");
-        }
-        else
-        {
+        } else {
             cr_assert_eq(timer->num_timeouts, 1);
             cr_assert_eq(timer->active, false, "Timer %i is active, but it shouldn't be.", i);
             check_timer_timeout(&start_time, &timeouts[i], 50 * MILLISECOND * (i + 1));
@@ -557,8 +540,7 @@ Test(multitimer, set_multiple_timer_next_cancel_test_timing, .init = log_setup, 
     struct timespec *timeouts = calloc(NUM_TIMERS, sizeof(struct timespec));
     struct callback_args *args = calloc(NUM_TIMERS, sizeof(struct callback_args));
 
-    for(int i=0; i<NUM_TIMERS; i++)
-    {
+    for(int i=0; i<NUM_TIMERS; i++) {
         args[i].timeouts = timeouts;
         args[i].idx = i;
     }
@@ -569,8 +551,7 @@ Test(multitimer, set_multiple_timer_next_cancel_test_timing, .init = log_setup, 
     cr_assert_eq(rc, CHITCP_OK);
 
     /* The first timer will time out at 100 milliseconds */
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_set_timer(&mt, i, 50*MILLISECOND * (i+2), timing_callback, &args[i]);
         cr_assert_eq(rc, CHITCP_OK);
     }
@@ -585,21 +566,17 @@ Test(multitimer, set_multiple_timer_next_cancel_test_timing, .init = log_setup, 
     /* Let the rest of the timers expire */
     usleep((NUM_TIMERS+1)*50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
 
 
-        if(i==0)
-        {
+        if(i==0) {
             cr_assert_eq(timer->active, false, "Cancelled timer still appears active.", i);
             cr_assert_eq(timer->num_timeouts, 0, "Cancelled timer has a non-zero number of timeouts");
             cr_assert_eq(timeouts[0].tv_sec, 0, "A timeout time was recorded for a cancelled timer");
             cr_assert_eq(timeouts[0].tv_nsec, 0, "A timeout time was recorded for a cancelled timer");
-        }
-        else
-        {
+        } else {
             cr_assert_eq(timer->num_timeouts, 1);
             cr_assert_eq(timer->active, false, "Timer %i is active, but it shouldn't be.", i);
             check_timer_timeout(&start_time, &timeouts[i], 50 * MILLISECOND * (i + 2));
@@ -625,8 +602,7 @@ Test(multitimer, set_multiple_timer_all_cancel_test_timing, .init = log_setup, .
     struct timespec *timeouts = calloc(NUM_TIMERS, sizeof(struct timespec));
     struct callback_args *args = calloc(NUM_TIMERS, sizeof(struct callback_args));
 
-    for(int i=0; i<NUM_TIMERS; i++)
-    {
+    for(int i=0; i<NUM_TIMERS; i++) {
         args[i].timeouts = timeouts;
         args[i].idx = i;
     }
@@ -636,24 +612,21 @@ Test(multitimer, set_multiple_timer_all_cancel_test_timing, .init = log_setup, .
     rc = mt_init(&mt, NUM_TIMERS);
     cr_assert_eq(rc, CHITCP_OK);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_set_timer(&mt, i, 50*MILLISECOND * (i+2), timing_callback, &args[i]);
         cr_assert_eq(rc, CHITCP_OK);
     }
 
     usleep(50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_cancel_timer(&mt, i);
         cr_assert_eq(rc, CHITCP_OK);
     }
 
     usleep(50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
 
@@ -681,8 +654,7 @@ Test(multitimer, set_multiple_timer_all_reverse_cancel_test_timing, .init = log_
     struct timespec *timeouts = calloc(NUM_TIMERS, sizeof(struct timespec));
     struct callback_args *args = calloc(NUM_TIMERS, sizeof(struct callback_args));
 
-    for(int i=0; i<NUM_TIMERS; i++)
-    {
+    for(int i=0; i<NUM_TIMERS; i++) {
         args[i].timeouts = timeouts;
         args[i].idx = i;
     }
@@ -692,16 +664,14 @@ Test(multitimer, set_multiple_timer_all_reverse_cancel_test_timing, .init = log_
     rc = mt_init(&mt, NUM_TIMERS);
     cr_assert_eq(rc, CHITCP_OK);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_set_timer(&mt, i, 50*MILLISECOND * (i+2), timing_callback, &args[i]);
         cr_assert_eq(rc, CHITCP_OK);
     }
 
     usleep(50*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_cancel_timer(&mt, NUM_TIMERS - (i+1));
         cr_assert_eq(rc, CHITCP_OK);
     }
@@ -709,8 +679,7 @@ Test(multitimer, set_multiple_timer_all_reverse_cancel_test_timing, .init = log_
     /* If the timers have been cancelled, no timers should fire in the next 200 milliseconds */
     usleep(200*USLEEP_MILLISECOND);
 
-    for(uint16_t i=0; i < NUM_TIMERS; i++)
-    {
+    for(uint16_t i=0; i < NUM_TIMERS; i++) {
         rc = mt_get_timer_by_id(&mt, i, &timer);
         cr_assert_eq(rc, CHITCP_OK);
 

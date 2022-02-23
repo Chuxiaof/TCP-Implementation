@@ -73,12 +73,9 @@ int chitcpd_get_socket()
 
     daemon_socket_ptr = pthread_getspecific(daemon_socket_key);
 
-    if (daemon_socket_ptr)
-    {
+    if (daemon_socket_ptr) {
         daemon_socket = *((int*) daemon_socket_ptr);
-    }
-    else
-    {
+    } else {
         daemon_socket_ptr = malloc(sizeof(int));
         daemon_socket = chitcpd_connect();
 
@@ -121,8 +118,7 @@ int chitcpd_connect()
 
     struct sockaddr_un serverAddr;
 
-    if ((clientSocket = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-    {
+    if ((clientSocket = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
         return CHITCP_ESOCKET;
     }
 
@@ -131,8 +127,7 @@ int chitcpd_connect()
     chitcp_unix_socket(serverAddr.sun_path, UNIX_PATH_MAX);
     len = strlen(serverAddr.sun_path) + sizeof(serverAddr.sun_family);
 
-    if (connect(clientSocket, (struct sockaddr *)&serverAddr, len) == -1)
-    {
+    if (connect(clientSocket, (struct sockaddr *)&serverAddr, len) == -1) {
         return CHITCP_ESOCKET;
     }
 

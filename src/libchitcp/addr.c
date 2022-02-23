@@ -58,14 +58,11 @@ in_port_t chitcp_get_addr_port(struct sockaddr *addr)
     if (!(addr->sa_family == AF_INET || addr->sa_family == AF_INET6))
         return -1; /* I assume this is an in_port_t that indicates error? */
 
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         struct sockaddr_in *sin = (struct sockaddr_in *) addr;
 
         return sin->sin_port;
-    }
-    else if(addr->sa_family == AF_INET6)
-    {
+    } else if(addr->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin = (struct sockaddr_in6 *) addr;
 
         return sin->sin6_port;
@@ -79,14 +76,11 @@ void chitcp_set_addr_port(struct sockaddr *addr, in_port_t port)
 {
     assert(addr->sa_family == AF_INET || addr->sa_family == AF_INET6);
 
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         struct sockaddr_in *sin = (struct sockaddr_in *) addr;
 
         sin->sin_port = port;
-    }
-    else if(addr->sa_family == AF_INET6)
-    {
+    } else if(addr->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin = (struct sockaddr_in6 *) addr;
 
         sin->sin6_port = port;
@@ -98,14 +92,11 @@ void* chitcp_get_addr(struct sockaddr *addr)
 {
     assert(addr->sa_family == AF_INET || addr->sa_family == AF_INET6);
 
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         struct sockaddr_in *sin = (struct sockaddr_in *) addr;
 
         return &sin->sin_addr;
-    }
-    else if(addr->sa_family == AF_INET6)
-    {
+    } else if(addr->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin = (struct sockaddr_in6 *) addr;
 
         return &sin->sin6_addr;
@@ -120,19 +111,14 @@ int chitcp_addr_cmp(struct sockaddr *addr1, struct sockaddr *addr2)
     assert(addr1->sa_family == AF_INET || addr1->sa_family == AF_INET6);
     assert(addr2->sa_family == AF_INET || addr2->sa_family == AF_INET6);
 
-    if(addr1->sa_family != addr2->sa_family)
-    {
+    if(addr1->sa_family != addr2->sa_family) {
         return addr1->sa_family - addr2->sa_family;
-    }
-    else if(addr1->sa_family == AF_INET)
-    {
+    } else if(addr1->sa_family == AF_INET) {
         struct sockaddr_in *sin1 = (struct sockaddr_in *) addr1;
         struct sockaddr_in *sin2 = (struct sockaddr_in *) addr2;
 
         return sin1->sin_addr.s_addr - sin2->sin_addr.s_addr;
-    }
-    else if(addr1->sa_family == AF_INET6)
-    {
+    } else if(addr1->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin1 = (struct sockaddr_in6 *) addr1;
         struct sockaddr_in6 *sin2 = (struct sockaddr_in6 *) addr2;
 
@@ -148,19 +134,14 @@ int chitcp_addr_port_cmp(struct sockaddr *addr1, struct sockaddr *addr2)
     assert(addr1->sa_family == AF_INET || addr1->sa_family == AF_INET6);
     assert(addr2->sa_family == AF_INET || addr2->sa_family == AF_INET6);
 
-    if(addr1->sa_family != addr2->sa_family)
-    {
+    if(addr1->sa_family != addr2->sa_family) {
         return addr1->sa_family - addr2->sa_family;
-    }
-    else if(addr1->sa_family == AF_INET)
-    {
+    } else if(addr1->sa_family == AF_INET) {
         struct sockaddr_in *sin1 = (struct sockaddr_in *) addr1;
         struct sockaddr_in *sin2 = (struct sockaddr_in *) addr2;
 
         return sin1->sin_port - sin2->sin_port;
-    }
-    else if(addr1->sa_family == AF_INET6)
-    {
+    } else if(addr1->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin1 = (struct sockaddr_in6 *) addr1;
         struct sockaddr_in6 *sin2 = (struct sockaddr_in6 *) addr2;
 
@@ -190,14 +171,11 @@ int chitcp_addr_is_loopback(struct sockaddr *addr)
 {
     assert(addr->sa_family == AF_INET || addr->sa_family == AF_INET6);
 
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         struct sockaddr_in *sin = (struct sockaddr_in *) addr;
 
         return sin->sin_addr.s_addr == htonl(INADDR_LOOPBACK);
-    }
-    else if(addr->sa_family == AF_INET6)
-    {
+    } else if(addr->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin = (struct sockaddr_in6 *) addr;
 
         return memcmp(&sin->sin6_addr, &in6addr_loopback, sizeof(in6addr_loopback)) == 0;
@@ -211,14 +189,11 @@ int chitcp_addr_is_any(struct sockaddr *addr)
 {
     assert(addr->sa_family == AF_INET || addr->sa_family == AF_INET6);
 
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         struct sockaddr_in *sin = (struct sockaddr_in *) addr;
 
         return sin->sin_addr.s_addr == htonl(INADDR_ANY);
-    }
-    else if(addr->sa_family == AF_INET6)
-    {
+    } else if(addr->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin = (struct sockaddr_in6 *) addr;
 
         return memcmp(&sin->sin6_addr, &in6addr_any, sizeof(in6addr_any)) == 0;
@@ -232,14 +207,11 @@ void chitcp_addr_set_any(struct sockaddr *addr)
 {
     assert(addr->sa_family == AF_INET || addr->sa_family == AF_INET6);
 
-    if(addr->sa_family == AF_INET)
-    {
+    if(addr->sa_family == AF_INET) {
         struct sockaddr_in *sin = (struct sockaddr_in *) addr;
 
         sin->sin_addr.s_addr = htonl(INADDR_ANY);
-    }
-    else if(addr->sa_family == AF_INET6)
-    {
+    } else if(addr->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin = (struct sockaddr_in6 *) addr;
 
         memcpy(&sin->sin6_addr, &in6addr_any, sizeof(in6addr_any));
@@ -255,11 +227,9 @@ int chitcp_addr_construct(char *host, char *port, struct sockaddr_in *addr)
     memset(addr, 0, sizeof(struct sockaddr_in));
     addr->sin_family = AF_INET;
     addr->sin_addr.s_addr = inet_addr(host);
-    if (addr->sin_addr.s_addr == -1)
-    {
+    if (addr->sin_addr.s_addr == -1) {
         he = gethostbyname(host);
-        if (he == NULL || he->h_addrtype != AF_INET || he->h_length != 4)
-        {
+        if (he == NULL || he->h_addrtype != AF_INET || he->h_length != 4) {
             perror("Invalid host");
             return -1;
         }

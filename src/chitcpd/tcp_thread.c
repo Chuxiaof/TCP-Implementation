@@ -85,8 +85,7 @@ TCP_STATE_HANDLER_FUNCTION(CLOSING);
 TCP_STATE_HANDLER_FUNCTION(TIME_WAIT);
 TCP_STATE_HANDLER_FUNCTION(LAST_ACK);
 
-tcp_state_handler_function tcp_state_handlers[] =
-{
+tcp_state_handler_function tcp_state_handlers[] = {
     TCP_STATE_HANDLER_ENTRY(CLOSED),
     TCP_STATE_HANDLER_ENTRY(LISTEN),
     TCP_STATE_HANDLER_ENTRY(SYN_RCVD),
@@ -155,16 +154,13 @@ void chitcpd_dispatch_tcp(serverinfo_t *si, chisocketentry_t *entry, tcp_event_t
 
     chilog(DEBUG, "<<< TCP data AFTER handling:");
     chilog_tcp_data(DEBUG, &socket_state->tcp_data, entry->tcp_state);
-    if(state != entry->tcp_state)
-    {
+    if(state != entry->tcp_state) {
         chilog(DEBUG, "<<< Finished handling event %s on state %s", tcp_event_str(event), tcp_str(state));
         chilog(DEBUG, "<<< New state: %s", tcp_str(entry->tcp_state));
-    }
-    else
+    } else
         chilog(DEBUG, "<<< Finished handling event %s on state %s", tcp_event_str(event), tcp_str(state));
 
-    if(rc != CHITCP_OK)
-    {
+    if(rc != CHITCP_OK) {
         chilog(ERROR, "Error when handling event %s on state %s", tcp_event_str(event), tcp_str(state));
     }
 }
@@ -173,8 +169,7 @@ void chitcpd_dispatch_tcp(serverinfo_t *si, chisocketentry_t *entry, tcp_event_t
 /* Advance declaration of TCP thread function */
 void* chitcpd_tcp_thread_func(void *args);
 
-typedef struct tcp_thread_args
-{
+typedef struct tcp_thread_args {
     serverinfo_t *si;
     chisocketentry_t *entry;
     char thread_name[16];
@@ -198,8 +193,7 @@ int chitcpd_tcp_start_thread(serverinfo_t *si, chisocketentry_t *entry)
     tta->entry = entry;
     snprintf (tta->thread_name, 16, "tcp-socket-%d", ptr_to_fd(si, entry));
 
-    if (pthread_create(&entry->socket_state.active.tcp_thread, NULL, chitcpd_tcp_thread_func, tta) < 0)
-    {
+    if (pthread_create(&entry->socket_state.active.tcp_thread, NULL, chitcpd_tcp_thread_func, tta) < 0) {
         perror("Could not create TCP thread");
         free(tta);
         return CHITCP_ETHREAD;
@@ -264,16 +258,14 @@ void* chitcpd_tcp_thread_func(void *args)
      * which will actually run through the TCP protocol.
      *
      */
-    while(!done)
-    {
+    while(!done) {
         /* Wait for event */
         chilog(TRACE, "Waiting for TCP event");
         pthread_mutex_lock(&socket_state->lock_event);
         while(socket_state->flags.raw == 0)
             pthread_cond_wait(&socket_state->cv_event, &socket_state->lock_event);
 
-        if(socket_state->flags.cleanup)
-        {
+        if(socket_state->flags.cleanup) {
             chilog(DEBUG, "Event received: cleanup");
 
             /* Cleanup can only happen in the CLOSED state */
@@ -283,41 +275,31 @@ void* chitcpd_tcp_thread_func(void *args)
             chitcpd_free_socket_entry(si, entry);
 
             done = TRUE;
-        }
-        else if(socket_state->flags.app_close)
-        {
+        } else if(socket_state->flags.app_close) {
             chilog(TRACE, "Event received: app_close");
             socket_state->flags.app_close = 0;
             pthread_mutex_unlock(&socket_state->lock_event);
 
             chitcpd_dispatch_tcp(si, entry, APPLICATION_CLOSE);
-        }
-        else if(socket_state->flags.app_connect)
-        {
+        } else if(socket_state->flags.app_connect) {
             chilog(TRACE, "Event received: app_connect");
             socket_state->flags.app_connect = 0;
             pthread_mutex_unlock(&socket_state->lock_event);
 
             chitcpd_dispatch_tcp(si, entry, APPLICATION_CONNECT);
-        }
-        else if(socket_state->flags.app_recv)
-        {
+        } else if(socket_state->flags.app_recv) {
             chilog(TRACE, "Event received: app_recv");
             socket_state->flags.app_recv = 0;
             pthread_mutex_unlock(&socket_state->lock_event);
 
             chitcpd_dispatch_tcp(si, entry, APPLICATION_RECEIVE);
-        }
-        else if(socket_state->flags.app_send)
-        {
+        } else if(socket_state->flags.app_send) {
             chilog(TRACE, "Event received: app_send");
             socket_state->flags.app_send = 0;
             pthread_mutex_unlock(&socket_state->lock_event);
 
             chitcpd_dispatch_tcp(si, entry, APPLICATION_SEND);
-        }
-        else if(socket_state->flags.net_recv)
-        {
+        } else if(socket_state->flags.net_recv) {
             chilog(TRACE, "Event received: net_recv");
 
             socket_state->flags.net_recv = 0;
@@ -326,23 +308,18 @@ void* chitcpd_tcp_thread_func(void *args)
             chitcpd_dispatch_tcp(si, entry, PACKET_ARRIVAL);
 
             /* If there are more packets to process, set net_recv to 1 again */
-            if(socket_state->tcp_data.pending_packets != NULL)
-            {
+            if(socket_state->tcp_data.pending_packets != NULL) {
                 pthread_mutex_lock(&socket_state->lock_event);
                 socket_state->flags.net_recv = 1;
                 pthread_mutex_unlock(&socket_state->lock_event);
             }
-        }
-        else if(socket_state->flags.timeout_rtx)
-        {
+        } else if(socket_state->flags.timeout_rtx) {
             chilog(TRACE, "Event received: timeout_rtx");
             socket_state->flags.timeout_rtx = 0;
             pthread_mutex_unlock(&socket_state->lock_event);
 
             chitcpd_dispatch_tcp(si, entry, TIMEOUT_RTX);
-        }
-        else if(socket_state->flags.timeout_pst)
-        {
+        } else if(socket_state->flags.timeout_pst) {
             chilog(TRACE, "Event received: timeout_pst");
             socket_state->flags.timeout_pst = 0;
             pthread_mutex_unlock(&socket_state->lock_event);

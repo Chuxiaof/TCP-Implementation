@@ -67,15 +67,13 @@ int chitcpd_init_debug_connection(serverinfo_t *si, int sockfd, int event_flags,
 
     chilog(TRACE, ">>> Initializing debug connection");
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         return EBADF;
     }
 
     debug_mon = malloc(sizeof(debug_monitor_t));
-    if (!debug_mon)
-    {
+    if (!debug_mon) {
         return errno;
     }
     pthread_mutex_init(&debug_mon->lock_numwaiters, NULL);
@@ -87,8 +85,7 @@ int chitcpd_init_debug_connection(serverinfo_t *si, int sockfd, int event_flags,
 
     chisocketentry_t *entry = &si->chisocket_table[sockfd];
     pthread_mutex_lock(&entry->lock_debug_monitor);
-    if (entry->debug_monitor != NULL)
-    {
+    if (entry->debug_monitor != NULL) {
         /* Some other thread is already registered as debugging this socket */
         chilog(TRACE, "Socket %d already has a debug monitor", sockfd);
         pthread_mutex_unlock(&entry->lock_debug_monitor);
@@ -130,18 +127,17 @@ enum chitcpd_debug_response chitcpd_debug_breakpoint(serverinfo_t *si, int sockf
     if (!debug_mon)
         /* The client doesn't care about this event. */
         return DBG_RESP_NONE;
-    
+
     chilog(DEBUG, ">>> Reached a breakpoint: socket %d, event %s", sockfd,
            dbg_evt_str(event_flag));
 
     /* The breakpoint proper. */
     int response = exchange_breakpoint_messages(debug_mon, sockfd, event_flag, new_sockfd, entry->actpas_type == SOCKET_ACTIVE);
-    
+
     /* Certain client responses must be handled BEFORE we return. */
     handle_special_breakpoint_responses(&response, si, entry, debug_mon, event_flag, new_sockfd);
 
-    if (debug_mon->dying)
-    {
+    if (debug_mon->dying) {
         /* Since we were the first thread to discover that debug_mon is dying,
          * we initiate procedures for removing it. */
         chilog(DEBUG, "Debug monitor for socket %d is dying.", sockfd);
@@ -169,16 +165,14 @@ void chitcpd_debug_detach_monitor(chisocketentry_t *entry)
 static bool_t valid_parameters(serverinfo_t *si, int sockfd, int event_flag)
 {
     /* If the server is stopping, we don't process checkpoints. */
-    if(si->state != CHITCPD_STATE_RUNNING)
-    {
+    if(si->state != CHITCPD_STATE_RUNNING) {
         chilog(DEBUG, "Ignoring breakpoint (socket %d, event %s): Server is stopping", sockfd,
                dbg_evt_str(event_flag));
 
         return FALSE;
     }
 
-    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available)
-    {
+    if(sockfd < 0 || sockfd >= si->chisocket_table_size || si->chisocket_table[sockfd].available) {
         chilog(ERROR, "Not a valid chisocket descriptor: %i", sockfd);
         return FALSE;
     }
@@ -194,8 +188,7 @@ static debug_monitor_t *obtain_debug_mon(chisocketentry_t *entry, int event_flag
 {
     pthread_mutex_lock(&entry->lock_debug_monitor);
 
-    if (!socket_monitors_event(entry, event_flag))
-    {
+    if (!socket_monitors_event(entry, event_flag)) {
         pthread_mutex_unlock(&entry->lock_debug_monitor);
         return NULL;
     }
@@ -204,8 +197,7 @@ static debug_monitor_t *obtain_debug_mon(chisocketentry_t *entry, int event_flag
     debug_mon_lock(debug_mon, &entry->lock_debug_monitor);
 
     /* Perhaps this debug_mon is no longer being used with this socket. */
-    if (debug_mon != entry->debug_monitor)
-    {
+    if (debug_mon != entry->debug_monitor) {
         debug_mon_release(debug_mon);
         return NULL;
     }
@@ -238,13 +230,10 @@ static int exchange_breakpoint_messages(debug_monitor_t *debug_mon, int sockfd, 
     ChitcpdMsg *resp;
     int r = chitcpd_send_and_recv_msg(debug_mon->sockfd, &req, &resp);
 
-    if (r != CHITCP_OK)
-    {
+    if (r != CHITCP_OK) {
         debug_mon->dying = TRUE;
         return DBG_RESP_NONE;
-    }
-    else
-    {
+    } else {
         assert(resp->resp != NULL);
         int ret = resp->resp->ret;
         chitcpd_msg__free_unpacked(resp, NULL);
@@ -257,14 +246,11 @@ static int exchange_breakpoint_messages(debug_monitor_t *debug_mon, int sockfd, 
 /* Ensure debug_mon is locked before calling. */
 static void handle_special_breakpoint_responses(int *response, serverinfo_t *si, chisocketentry_t *entry, debug_monitor_t *debug_mon, int event_flag, int new_sockfd)
 {
-    if (*response == DBG_RESP_STOP)
-    {
+    if (*response == DBG_RESP_STOP) {
         *response = DBG_RESP_NONE;
         detach_monitor_from_entry(debug_mon, entry);
-    }
-    else if (*response == DBG_RESP_ACCEPT_MONITOR
-                && event_flag == DBG_EVT_PENDING_CONNECTION)
-    {
+    } else if (*response == DBG_RESP_ACCEPT_MONITOR
+               && event_flag == DBG_EVT_PENDING_CONNECTION) {
         /* The client might have improperly used the response code DBG_RESP_ACCEPT_MONITOR,
          * so we must double-check that the event_flag was DBG_EVT_PENDING_CONNECTION. */
 
@@ -279,8 +265,7 @@ static void handle_special_breakpoint_responses(int *response, serverinfo_t *si,
 static void detach_monitor_from_entry(debug_monitor_t *debug_mon, chisocketentry_t *entry)
 {
     pthread_mutex_lock(&entry->lock_debug_monitor);
-    if (entry->debug_monitor == debug_mon)
-    {
+    if (entry->debug_monitor == debug_mon) {
         entry->debug_monitor = NULL;
         entry->event_flags = 0;
 
@@ -289,7 +274,7 @@ static void detach_monitor_from_entry(debug_monitor_t *debug_mon, chisocketentry
     }
     pthread_mutex_unlock(&entry->lock_debug_monitor);
 }
- 
+
 /* Ensure debug_mon is locked before calling. */
 static void attach_monitor_and_flags_to_entry(debug_monitor_t *debug_mon, int event_flags, chisocketentry_t *entry)
 {
@@ -305,8 +290,7 @@ static void attach_monitor_and_flags_to_entry(debug_monitor_t *debug_mon, int ev
 /* Ensure debug_mon is locked before calling. */
 static void debug_mon_remove_from_chisocket_table(serverinfo_t *si, debug_monitor_t *debug_mon)
 {
-    for (int i=0; i < si->chisocket_table_size; i++)
-    {
+    for (int i=0; i < si->chisocket_table_size; i++) {
         chisocketentry_t *e = &si->chisocket_table[i];
         detach_monitor_from_entry(debug_mon, e);
     }

@@ -58,8 +58,7 @@ int chitcpd_send_msg(int sockfd, const ChitcpdMsg *msg)
     packed = malloc(sizeof(size_t) + size); /* message length, then message */
     /* We use malloc rather than stack space because message length
      * can be arbitrarily long.*/
-    if (!packed)
-    {
+    if (!packed) {
         perror("chitcpd_send_msg: malloc failed");
         return -2;
     }
@@ -69,14 +68,11 @@ int chitcpd_send_msg(int sockfd, const ChitcpdMsg *msg)
     /* Send request */
     nbytes = send(sockfd, packed, sizeof(size_t) + size, 0);
     free(packed);
-    if (nbytes == -1 && (errno == ECONNRESET || errno == EPIPE))
-    {
+    if (nbytes == -1 && (errno == ECONNRESET || errno == EPIPE)) {
         /* Peer disconnected */
         close(sockfd);
         return -1;
-    }
-    else if (nbytes == -1)
-    {
+    } else if (nbytes == -1) {
         perror("chitcpd_send_msg: Unexpected error in send()");
         return -2;
     }
@@ -92,38 +88,31 @@ int chitcpd_recv_msg(int sockfd, ChitcpdMsg **msg_p)
 
     /* Get the message length */
     nbytes = recv(sockfd, &size, sizeof(size_t), 0);
-    if (nbytes == 0)
-    {
+    if (nbytes == 0) {
         /* Peer disconnected */
         errno = ECONNRESET;
         close(sockfd);
         return -1;
-    }
-    else if (nbytes == -1)
-    {
+    } else if (nbytes == -1) {
         perror("chitcpd_recv_msg: Unexpected error in recv()");
         return -2;
     }
 
     packed = malloc(size);
-    if (!packed)
-    {
+    if (!packed) {
         perror("chitcpd_recv_msg: malloc failed");
         return -2;
     }
 
     /* Get the message itself */
     nbytes = recv(sockfd, packed, size, 0);
-    if (nbytes == 0)
-    {
+    if (nbytes == 0) {
         /* Peer disconnected */
         errno = ECONNRESET;
         free(packed);
         close(sockfd);
         return -1;
-    }
-    else if (nbytes == -1)
-    {
+    } else if (nbytes == -1) {
         perror("chitcpd_recv_msg: Unexpected error in recv()");
         free(packed);
         return -2;
@@ -131,8 +120,7 @@ int chitcpd_recv_msg(int sockfd, ChitcpdMsg **msg_p)
 
     *msg_p = chitcpd_msg__unpack(NULL, size, packed);
     free(packed);
-    if (!*msg_p)
-    {
+    if (!*msg_p) {
         errno = EPROTO;
         perror("chitcpd_recv_msg: Error unpacking chitcpd msg");
         return -2;

@@ -244,8 +244,7 @@ int chisocket_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
     ret = resp_p->resp->ret;
     error_code = resp_p->resp->error_code;
 
-    if (!error_code)
-    {
+    if (!error_code) {
         assert(resp_p->resp->has_addr);
 
         len = (resp_p->resp->addr.len < *addrlen) ? resp_p->resp->addr.len : *addrlen;
@@ -313,8 +312,7 @@ ssize_t chisocket_send(int sockfd, const void *buf, size_t buf_len, int flags)
      * (Irritatingly, there seems to be no way to tell the compiler that we
      * won't harm any sub-structures pointed to by the ChitcpdMsg.) */
     newbuf = malloc(buf_len);
-    if (!newbuf)
-    {
+    if (!newbuf) {
         errno = ENOMEM;
         return -1;
     }
@@ -380,8 +378,7 @@ ssize_t chisocket_recv(int sockfd, void *buf, size_t len, int flags)
     ret = resp_p->resp->ret;
     error_code = resp_p->resp->error_code;
 
-    if (!error_code && ret != 0)
-    {
+    if (!error_code && ret != 0) {
         assert(resp_p->resp->has_buf
                && resp_p->resp->buf.len == ret
                && ret <= len);

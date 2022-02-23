@@ -71,14 +71,12 @@ void chilog(loglevel_t level, char *fmt, ...)
 
 
     clock_gettime(CLOCK_REALTIME, &ts);
-    if((tm = localtime(&ts.tv_sec)) != NULL)
-    {
-            strftime(timefmt, sizeof(timefmt), "%H:%M:%S.%%09u", tm);
-            snprintf(buf, sizeof(buf), timefmt, ts.tv_nsec);
+    if((tm = localtime(&ts.tv_sec)) != NULL) {
+        strftime(timefmt, sizeof(timefmt), "%H:%M:%S.%%09u", tm);
+        snprintf(buf, sizeof(buf), timefmt, ts.tv_nsec);
     }
 
-    switch(level)
-    {
+    switch(level) {
     case CRITICAL:
         levelstr = "CRITIC";
         break;
@@ -156,15 +154,15 @@ void chilog_tcp_minimal(struct sockaddr *src, struct sockaddr *dst, int sockfd, 
     srcdst_str(src, dst, srcdst, 255);
 
     snprintf(flags, 8, "%s%s%s%s%s%s%s%s",
-            header->cwr? "W":"",
-            header->ece? "E":"",
-            header->urg? "U":"",
-            header->psh? "P":"",
-            header->rst? "R":"",
-            header->syn? "S":"",
-            header->fin? "F":"",
-            header->ack? ".":""
-    );
+             header->cwr? "W":"",
+             header->ece? "E":"",
+             header->urg? "U":"",
+             header->psh? "P":"",
+             header->rst? "R":"",
+             header->syn? "S":"",
+             header->fin? "F":"",
+             header->ack? ".":""
+            );
 
     if(flags[0] == '\0')
         strcpy(flags, "none");
@@ -180,7 +178,7 @@ void chilog_tcp_minimal(struct sockaddr *src, struct sockaddr *dst, int sockfd, 
         ackstr[0] = '\0';
 
     chilog(MINIMAL, "[S%i] %s %s: Flags [%s],%s%s win %i, length %i",
-                    sockfd, prefix, srcdst, flags, seqstr, ackstr, chitcp_ntohs(header->win), payload_len);
+           sockfd, prefix, srcdst, flags, seqstr, ackstr, chitcp_ntohs(header->win), payload_len);
 }
 
 void chilog_tcp(loglevel_t level, tcp_packet_t *packet, char prefix)
@@ -214,13 +212,10 @@ void chilog_tcp(loglevel_t level, tcp_packet_t *packet, char prefix)
            header->syn,
            header->fin);
 
-    if(payload_len > 0)
-    {
+    if(payload_len > 0) {
         chilog(level, "%c  Payload (%i bytes):", prefix, payload_len);
         chilog_hex(level, payload, payload_len);
-    }
-    else
-    {
+    } else {
         chilog(level, "%c  No Payload", prefix);
     }
     chilog(level, "   ######################################################################");
@@ -255,15 +250,12 @@ void chilog_hex (loglevel_t level, void *data, int len)
 
     line[0] = '\0';
     // Process every byte in the data.
-    for (i = 0; i < len; i++)
-    {
+    for (i = 0; i < len; i++) {
         // Multiple of 16 means new line (with line offset).
 
-        if ((i % 16) == 0)
-        {
+        if ((i % 16) == 0) {
             // Just don't print ASCII for the zeroth line.
-            if (i != 0)
-            {
+            if (i != 0) {
                 chilog(level, "%s  %s", line, ascii);
                 line[0] = '\0';
             }
@@ -286,8 +278,7 @@ void chilog_hex (loglevel_t level, void *data, int len)
     }
 
     // Pad out last line if not exactly 16 characters.
-    while ((i % 16) != 0)
-    {
+    while ((i % 16) != 0) {
         strcat(line, "   ");
         i++;
     }

@@ -86,26 +86,24 @@ int chitcpd_server_start_network_thread(serverinfo_t *si);
 void* chitcpd_server_network_thread_func(void *args);
 
 /* Arguments to the server thread */
-typedef struct server_thread_args
-{
+typedef struct server_thread_args {
     serverinfo_t *si;
 } server_thread_args_t;
 
 /* Arguments to the network thread */
-typedef struct network_thread_args
-{
+typedef struct network_thread_args {
     serverinfo_t *si;
 } network_thread_args_t;
 
 /* Header for pcap file if necessary. */
 typedef struct pcap_hdr {
-        uint32_t magic_number;   /* magic number */
-        uint16_t version_major;  /* major version number */
-        uint16_t version_minor;  /* minor version number */
-        int32_t  thiszone;       /* GMT to local correction */
-        uint32_t sigfigs;        /* accuracy of timestamps */
-        uint32_t snaplen;        /* max length of captured packets, in octets */
-        uint32_t network;        /* data link type */
+    uint32_t magic_number;   /* magic number */
+    uint16_t version_major;  /* major version number */
+    uint16_t version_minor;  /* minor version number */
+    int32_t  thiszone;       /* GMT to local correction */
+    uint32_t sigfigs;        /* accuracy of timestamps */
+    uint32_t snaplen;        /* max length of captured packets, in octets */
+    uint32_t network;        /* data link type */
 } pcap_hdr_t;
 
 
@@ -136,14 +134,12 @@ int chitcpd_server_init(serverinfo_t *si)
     pthread_mutex_init(&si->lock_chisocket_table, NULL);
     si->chisocket_table = calloc(si->chisocket_table_size, sizeof(chisocketentry_t));
 
-    if(si->chisocket_table == NULL)
-    {
+    if(si->chisocket_table == NULL) {
         perror("Could not initialize chisocket table");
         return CHITCP_ENOMEM;
     }
 
-    for(int i=0; i< si->chisocket_table_size; i++)
-    {
+    for(int i=0; i< si->chisocket_table_size; i++) {
         pthread_mutex_init(&si->chisocket_table[i].lock_debug_monitor, NULL);
         si->chisocket_table[i].available = TRUE;
     }
@@ -153,8 +149,7 @@ int chitcpd_server_init(serverinfo_t *si)
     pthread_mutex_init(&si->lock_connection_table, NULL);
     si->connection_table = calloc(si->connection_table_size, sizeof(tcpconnentry_t));
 
-    if(si->connection_table == NULL)
-    {
+    if(si->connection_table == NULL) {
         perror("Could not initialize connection table");
         return CHITCP_ENOMEM;
     }
@@ -166,8 +161,7 @@ int chitcpd_server_init(serverinfo_t *si)
     /* This is an array of pointers, and they are all set to NULL */
     si->port_table = calloc(si->port_table_size, sizeof(chisocketentry_t*));
 
-    if(si->port_table == NULL)
-    {
+    if(si->port_table == NULL) {
         perror("Could not initialize port table");
         return CHITCP_ENOMEM;
     }
@@ -183,11 +177,9 @@ int chitcpd_server_init(serverinfo_t *si)
 
     /* Open libpcap file if a name is provided. Will overwrite any data currentlly
        in said file. */
-    if (si->libpcap_file_name != NULL)
-    {
+    if (si->libpcap_file_name != NULL) {
         si->libpcap_file = fopen(si->libpcap_file_name, "wb");
-        if (si->libpcap_file == NULL)
-        {
+        if (si->libpcap_file == NULL) {
             perror("Could not open libpcap file for writing");
             return CHITCP_ENOMEM;
         }
@@ -203,9 +195,7 @@ int chitcpd_server_init(serverinfo_t *si)
         pcap_header.snaplen = 65535;
         pcap_header.network = 101;
         fwrite(&pcap_header, sizeof(pcap_hdr_t), 1, si->libpcap_file);
-    }
-    else
-    {
+    } else {
         si->libpcap_file = NULL;
     }
 
@@ -225,15 +215,13 @@ int chitcpd_server_start(serverinfo_t *si)
 
     /* Start server thread */
     rc = chitcpd_server_start_thread(si);
-    if(rc != 0)
-    {
+    if(rc != 0) {
         return rc;
     }
 
     /* Start network thread */
     rc = chitcpd_server_start_network_thread(si);
-    if(rc != 0)
-    {
+    if(rc != 0) {
         return rc;
     }
 
@@ -255,8 +243,7 @@ int chitcpd_server_start(serverinfo_t *si)
     pdta->si = si;
 
     /* Create delivery thread */
-    if (pthread_create(&si->delivery_thread, NULL, chitcpd_packet_delivery_thread_func, pdta) < 0)
-    {
+    if (pthread_create(&si->delivery_thread, NULL, chitcpd_packet_delivery_thread_func, pdta) < 0) {
         perror("Could not create delivery thread");
         free(pdta);
         return CHITCP_ETHREAD;
@@ -376,8 +363,7 @@ int chitcpd_server_start_thread(serverinfo_t *si)
 
     struct sockaddr_un server_addr;
 
-    if ((si->server_socket = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
-    {
+    if ((si->server_socket = socket(AF_UNIX, SOCK_STREAM, 0)) == -1) {
         perror("Could not open UNIX socket");
         return CHITCP_ESOCKET;
     }
@@ -391,16 +377,14 @@ int chitcpd_server_start_thread(serverinfo_t *si)
     unlink(server_addr.sun_path);
 
     /* Bind socket */
-    if (bind(si->server_socket, (struct sockaddr *)&server_addr, len) == -1)
-    {
+    if (bind(si->server_socket, (struct sockaddr *)&server_addr, len) == -1) {
         perror("Could not bind to UNIX socket");
         close(si->server_socket);
         return CHITCP_ESOCKET;
     }
 
     /* Start listening */
-    if (listen(si->server_socket, 5) == -1)
-    {
+    if (listen(si->server_socket, 5) == -1) {
         perror("UNIX socket listen() failed");
         close(si->server_socket);
         return CHITCP_ESOCKET;
@@ -410,8 +394,7 @@ int chitcpd_server_start_thread(serverinfo_t *si)
     server_thread_args_t *sta = malloc(sizeof(server_thread_args_t));
     sta->si = si;
 
-    if (pthread_create(&si->server_thread, NULL, chitcpd_server_thread_func, sta) < 0)
-    {
+    if (pthread_create(&si->server_thread, NULL, chitcpd_server_thread_func, sta) < 0) {
         perror("Could not create server thread");
         free(sta);
         return CHITCP_ETHREAD;
@@ -423,8 +406,7 @@ int chitcpd_server_start_thread(serverinfo_t *si)
 
 /* Used only in the following function to keep track of
  * the UNIX socket handler threads. */
-typedef struct handler_thread
-{
+typedef struct handler_thread {
     pthread_t thread;
     socket_t handler_socket;
     pthread_mutex_t handler_lock;
@@ -472,14 +454,12 @@ void* chitcpd_server_thread_func(void *args)
     struct sockaddr_un client_addr;
 
     /* Accept connections on the UNIX socket */
-    for(;;)
-    {
+    for(;;) {
         socket_t client_socket;
 
         /* Accept a connection */
         sunSize = sizeof(client_addr);
-        if ((client_socket = accept(si->server_socket, (struct sockaddr *)&client_addr, &sunSize)) == -1)
-        {
+        if ((client_socket = accept(si->server_socket, (struct sockaddr *)&client_addr, &sunSize)) == -1) {
             /* If accept() returns in the CHITCPD_STATE_STOPPING, we don't
              * care what the error is. We just break out of the loop and
              * initiate an orderly shutdown. */
@@ -493,20 +473,17 @@ void* chitcpd_server_thread_func(void *args)
 
         /* We receive a single message, which has to be an INIT message */
         rc = chitcpd_recv_msg(client_socket, &req);
-        if (rc < 0)
-        {
+        if (rc < 0) {
             if(si->state == CHITCPD_STATE_STOPPING)
                 break;
-            else
-            {
+            else {
                 chilog(ERROR, "Error when receiving lead message through UNIX socket");
                 shutdown(client_socket, SHUT_RDWR);
                 continue;
             }
         }
 
-        if(req->code != CHITCPD_MSG_CODE__INIT)
-        {
+        if(req->code != CHITCPD_MSG_CODE__INIT) {
             chilog(ERROR, "Expected INIT message, instead got message code %i", req->code);
             chitcpd_msg__free_unpacked(req, NULL);
             shutdown(client_socket, SHUT_RDWR);
@@ -533,8 +510,7 @@ void* chitcpd_server_thread_func(void *args)
          * That UNIX socket is then used to send back debug messages.
          */
 
-        if (conntype == CHITCPD_CONNECTION_TYPE__COMMAND_CONNECTION)
-        {
+        if (conntype == CHITCPD_CONNECTION_TYPE__COMMAND_CONNECTION) {
             /* Create arguments for handler thread */
             ha = malloc(sizeof(handler_thread_args_t));
             ha->si = si;
@@ -547,8 +523,7 @@ void* chitcpd_server_thread_func(void *args)
             ha->client_socket = handler_thread->handler_socket;
             ha->handler_lock = &handler_thread->handler_lock;
             snprintf(ha->thread_name, 16, "socket-layer-%d", next_thread_id++);
-            if (pthread_create(&handler_thread->thread, NULL, chitcpd_handler_dispatch, ha) != 0)
-            {
+            if (pthread_create(&handler_thread->thread, NULL, chitcpd_handler_dispatch, ha) != 0) {
                 perror("Could not create a worker thread");
 
                 resp_outer.resp->ret = CHITCP_ETHREAD;
@@ -566,9 +541,7 @@ void* chitcpd_server_thread_func(void *args)
             rc = chitcpd_send_msg(client_socket, &resp_outer);
 
             list_append(&handler_thread_list, handler_thread);
-        }
-        else if(conntype == CHITCPD_CONNECTION_TYPE__DEBUG_CONNECTION)
-        {
+        } else if(conntype == CHITCPD_CONNECTION_TYPE__DEBUG_CONNECTION) {
             int debug_sockfd, debug_event_flags;
             ChitcpdDebugArgs *debug_args;
 
@@ -580,14 +553,11 @@ void* chitcpd_server_thread_func(void *args)
             debug_event_flags = debug_args->event_flags;
 
             rc = chitcpd_init_debug_connection(si, debug_sockfd, debug_event_flags, client_socket);
-            if(rc == CHITCP_OK)
-            {
+            if(rc == CHITCP_OK) {
                 resp_outer.resp->ret = CHITCP_OK;
                 resp_outer.resp->error_code = 0;
                 rc = chitcpd_send_msg(client_socket, &resp_outer);
-            }
-            else
-            {
+            } else {
                 chilog(ERROR, "Error when creating debug connection for socket %i", debug_sockfd);
                 resp_outer.resp->ret = CHITCP_EINIT;
                 resp_outer.resp->error_code = rc;
@@ -595,9 +565,7 @@ void* chitcpd_server_thread_func(void *args)
 
                 shutdown(client_socket, SHUT_RDWR);
             }
-        }
-        else
-        {
+        } else {
             chilog(ERROR, "Received INIT message with unknown connection type %i", conntype);
             resp_outer.resp->ret = CHITCP_EINVAL;
             resp_outer.resp->error_code = 0;
@@ -608,8 +576,7 @@ void* chitcpd_server_thread_func(void *args)
         chitcpd_msg__free_unpacked(req, NULL);
     }
 
-    while(!list_empty(&handler_thread_list))
-    {
+    while(!list_empty(&handler_thread_list)) {
         /* For each handler thread we spawned, we close its socket, which
          * will force the thread to exit (and we then join it).
          *
@@ -667,31 +634,27 @@ int chitcpd_server_start_network_thread(serverinfo_t *si)
 
     /* Create the socket */
     si->network_socket = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if(si->network_socket  == -1)
-    {
+    if(si->network_socket  == -1) {
         perror("Could not open network socket");
         return CHITCP_ESOCKET;
     }
 
     /* Make port immediately available after we close the socket */
-    if(setsockopt(si->network_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
-    {
+    if(setsockopt(si->network_socket, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
         perror("Socket setsockopt() failed");
         close(si->network_socket);
         return CHITCP_ESOCKET;
     }
 
     /* Bind the socket to the address */
-    if(bind(si->network_socket, (struct sockaddr *) &server_addr, sizeof(server_addr)) == -1)
-    {
+    if(bind(si->network_socket, (struct sockaddr *) &server_addr, sizeof(server_addr)) == -1) {
         perror("Socket bind() failed");
         close(si->network_socket);
         return CHITCP_ESOCKET;
     }
 
     /* Start listening */
-    if(listen(si->network_socket, 5) == -1)
-    {
+    if(listen(si->network_socket, 5) == -1) {
         perror("Network socket listen() failed");
         close(si->network_socket);
         return CHITCP_ESOCKET;
@@ -702,8 +665,7 @@ int chitcpd_server_start_network_thread(serverinfo_t *si)
     nta->si = si;
 
     /* Create network thread */
-    if (pthread_create(&si->network_thread, NULL, chitcpd_server_network_thread_func, nta) < 0)
-    {
+    if (pthread_create(&si->network_thread, NULL, chitcpd_server_network_thread_func, nta) < 0) {
         perror("Could not create network thread");
         free(nta);
         return CHITCP_ETHREAD;
@@ -742,12 +704,10 @@ void* chitcpd_server_network_thread_func(void *args)
     struct sockaddr_storage client_addr;
 
     /* Accept connections on the TCP socket */
-    for(;;)
-    {
+    for(;;) {
         /* Accept a connection */
         sunSize = sizeof(client_addr);
-        if ((realsocket = accept(si->network_socket, (struct sockaddr *)&client_addr, &sunSize)) == -1)
-        {
+        if ((realsocket = accept(si->network_socket, (struct sockaddr *)&client_addr, &sunSize)) == -1) {
             /* If accept() returns in the CHITCPD_STATE_STOPPING, we don't
              * care what the error is. We just break out of the loop and
              * initiate an orderly shutdown. */
@@ -764,27 +724,23 @@ void* chitcpd_server_network_thread_func(void *args)
 
         /* Check whether the connection already exists. */
         connection = chitcpd_get_connection(si, (struct sockaddr *) &client_addr);
-        if (connection != NULL)
-        {
+        if (connection != NULL) {
             /* If this is a loopback connection, there is already an entry in
              * the connection table, but we need to update its receive socket
              * and create its connection thread. */
-           if(chitcp_addr_is_loopback((struct sockaddr *) &client_addr))
-           {
-               connection->realsocket_recv = realsocket;
+            if(chitcp_addr_is_loopback((struct sockaddr *) &client_addr)) {
+                connection->realsocket_recv = realsocket;
 
-               if(chitcpd_create_connection_thread(si, connection) != CHITCP_OK)
-               {
-                   perror("Could not create connection thread.");
-                   // TODO: Perform orderly shutdown
-                   pthread_exit(NULL);
-               }
+                if(chitcpd_create_connection_thread(si, connection) != CHITCP_OK) {
+                    perror("Could not create connection thread.");
+                    // TODO: Perform orderly shutdown
+                    pthread_exit(NULL);
+                }
 
-               continue;
-           }
-           else
-           /* Otherwise, this is an error. The peer chiTCP daemon tried to create
-            * a second connection, which shouldn't happen. */
+                continue;
+            } else
+                /* Otherwise, this is an error. The peer chiTCP daemon tried to create
+                 * a second connection, which shouldn't happen. */
             {
                 perror("Peer chiTCP daemon tried to establish more than one connection.");
                 close(realsocket);
@@ -798,15 +754,13 @@ void* chitcpd_server_network_thread_func(void *args)
          * for this connection */
         connection = chitcpd_add_connection(si, realsocket, realsocket, (struct sockaddr*) &client_addr);
 
-        if (!connection)
-        {
+        if (!connection) {
             perror("Could not create a connection to a peer chiTCP daemon");
             // TODO: Perform orderly shutdown
             pthread_exit(NULL);
         }
 
-        if(chitcpd_create_connection_thread(si, connection) != CHITCP_OK)
-        {
+        if(chitcpd_create_connection_thread(si, connection) != CHITCP_OK) {
             perror("Could not create connection thread.");
             // TODO: Perform orderly shutdown
             pthread_exit(NULL);
@@ -815,11 +769,9 @@ void* chitcpd_server_network_thread_func(void *args)
 
     /* Close all TCP connections. This will force an exit of the
      * corresponding connection threads. */
-    for(int i=0; i < si->connection_table_size; i++)
-    {
+    for(int i=0; i < si->connection_table_size; i++) {
         connection = &si->connection_table[i];
-        if(!connection->available)
-        {
+        if(!connection->available) {
             shutdown(connection->realsocket_recv, SHUT_RDWR);
             if (connection->realsocket_recv != connection->realsocket_send)
                 shutdown(connection->realsocket_send, SHUT_RDWR);

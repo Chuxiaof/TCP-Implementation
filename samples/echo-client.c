@@ -33,8 +33,7 @@ int main(int argc, char *argv[])
 
     /* Use getopt to fetch the host and port */
     while ((opt = getopt(argc, argv, "h:p:m:f:s")) != -1)
-        switch (opt)
-        {
+        switch (opt) {
         case 'h':
             host = strdup(optarg);
             break;
@@ -56,14 +55,12 @@ int main(int argc, char *argv[])
             exit(1);
         }
 
-    if(msg && filename)
-    {
+    if(msg && filename) {
         printf("You cannot specify both -m and -f.");
         printf("%s\n", USAGE);
     }
 
-    if(step)
-    {
+    if(step) {
         printf("Press any key to create the socket...");
         getchar();
     }
@@ -72,54 +69,44 @@ int main(int argc, char *argv[])
                                     SOCK_STREAM,   // Type: Full-duplex stream (reliable)
                                     IPPROTO_TCP);  // Protocol: TCP;
 
-    if(clientSocket == -1)
-    {
+    if(clientSocket == -1) {
         perror("Could not create socket");
         exit(-1);
     }
 
-    if (chitcp_addr_construct(host, port, &serverAddr))
-    {
+    if (chitcp_addr_construct(host, port, &serverAddr)) {
         perror("Could not construct address");
         exit(-1);
     }
 
-    if(step)
-    {
+    if(step) {
         printf("Press any key to connect to the server...");
         getchar();
     }
 
-    if (chisocket_connect(clientSocket, (struct sockaddr *) &serverAddr, sizeof(struct sockaddr_in)) == -1)
-    {
+    if (chisocket_connect(clientSocket, (struct sockaddr *) &serverAddr, sizeof(struct sockaddr_in)) == -1) {
         chisocket_close(clientSocket);
         perror("Could not connect to socket");
         exit(-1);
     }
 
-    if(step && msg)
-    {
+    if(step && msg) {
         printf("Press any key to send message '%s'...", msg);
         getchar();
     }
 
-    if(msg)
-    {
-        if (chitcp_socket_send(clientSocket, msg, strlen(msg)) == -1)
-        {
+    if(msg) {
+        if (chitcp_socket_send(clientSocket, msg, strlen(msg)) == -1) {
             chisocket_close(clientSocket);
             exit(-1);
         }
         printf("Message sent:  '%s'\n", msg);
-    }
-    else
-    {
+    } else {
         int nread;
 
         buf_size = 128;
         buf = malloc(buf_size);
-        while(1)
-        {
+        while(1) {
             int nrecv;
             char *recv_buf;
 
@@ -128,8 +115,7 @@ int main(int argc, char *argv[])
             if(nread == -1)
                 break;
 
-            if ( chitcp_socket_send(clientSocket, buf, nread) == -1 )
-            {
+            if ( chitcp_socket_send(clientSocket, buf, nread) == -1 ) {
                 chisocket_close(clientSocket);
                 exit(-1);
             }
@@ -138,42 +124,33 @@ int main(int argc, char *argv[])
 
             nrecv = chitcp_socket_recv(clientSocket, recv_buf, nread);
 
-            if (nrecv == -1)
-            {
+            if (nrecv == -1) {
                 chisocket_close(clientSocket);
                 exit(-1);
-            }
-            else if (nrecv != nread)
-            {
+            } else if (nrecv != nread) {
                 printf("Sent %i bytes but got %i back\n", nread, nrecv);
-            }
-            else if (memcmp(buf, recv_buf, nread) != 0)
-            {
+            } else if (memcmp(buf, recv_buf, nread) != 0) {
                 printf("Echo from server did not match\n");
-            }
-            else
+            } else
                 printf("%.*s", nread, recv_buf);
 
             free(recv_buf);
         }
     }
 
-    if (step)
-    {
+    if (step) {
         printf("Press any key to close connection...");
         getchar();
     }
 
-    if (chisocket_close(clientSocket) == -1)
-    {
+    if (chisocket_close(clientSocket) == -1) {
         perror("Could not close socket");
         exit(-1);
     }
 
     printf("Connection closed.\n");
 
-    if (step)
-    {
+    if (step) {
         printf("Press any key to exit...");
         getchar();
     }

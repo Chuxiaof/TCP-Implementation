@@ -17,8 +17,7 @@ void log_setup(void)
 
     loglevel = getenv("LOG");
 
-    if(loglevel)
-    {
+    if(loglevel) {
         if (!strcmp(loglevel, "CRITICAL"))
             chitcp_setloglevel(CRITICAL);
         else if (!strcmp(loglevel, "ERROR"))
@@ -35,8 +34,7 @@ void log_setup(void)
             chitcp_setloglevel(TRACE);
         else
             chitcp_setloglevel(CRITICAL);
-    }
-    else
+    } else
         chitcp_setloglevel(CRITICAL);
 }
 

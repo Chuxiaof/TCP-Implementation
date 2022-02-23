@@ -51,15 +51,13 @@
  * to a debug_event_handler. (See active_thread below.) */
 static pthread_key_t state_key;
 
-struct debug_thread_args
-{
+struct debug_thread_args {
     debug_event_handler handler;
     int fd;
 };
 
 /* Arguments to a thread that monitors debug events from a single active socket. */
-struct active_thread_args
-{
+struct active_thread_args {
     debug_event_handler handler; /* function to run upon receipt of a debug event */
     int sockfd; /* chisocket being monitored */
     enum chitcpd_debug_event event_flag; /* the current event */
@@ -70,8 +68,7 @@ struct active_thread_args
 };
 
 /* For more descriptive log messages. */
-static char *event_names[] =
-{
+static char *event_names[] = {
     "TCP_STATE_CHANGE",
     "INCOMING_PACKET",
     "OUTGOING_PACKET",
@@ -99,18 +96,15 @@ void dump_socket_state(struct debug_socket_state *state, bool_t include_buffers)
     printf("  RCV_WND: %u\n", state->RCV_WND);
     printf("  SND_WND: %u\n", state->SND_WND);
 
-    if (include_buffers && state->send && state->recv)
-    {
+    if (include_buffers && state->send && state->recv) {
         int i;
         printf("  send buffer: ");
-        for (i = 0; i < state->send_len; i++)
-        {
+        for (i = 0; i < state->send_len; i++) {
             printf("%02x ", state->send[i]);
         }
         printf("\n");
         printf("  recv buffer: ");
-        for (i = 0; i < state->recv_len; i++)
-        {
+        for (i = 0; i < state->recv_len; i++) {
             printf("%02x ", state->recv[i]);
         }
         printf("\n");
@@ -146,8 +140,7 @@ int chitcpd_debug(int sockfd, int event_flags, debug_event_handler handler)
 
     /* Create a new connection to the daemon */
     daemon_fd = chitcpd_connect();
-    if (daemon_fd == CHITCP_ESOCKET)
-    {
+    if (daemon_fd == CHITCP_ESOCKET) {
         /* errno is set during chitcpd_connect */
         return -1;
     }
@@ -171,16 +164,14 @@ int chitcpd_debug(int sockfd, int event_flags, debug_event_handler handler)
     errno = resp_p->resp->error_code;
     chitcpd_msg__free_unpacked(resp_p, NULL);
 
-    if (rc < 0)
-    {
+    if (rc < 0) {
         perror("chitcpd_debug");
         close(sockfd);
         return -1;
     }
 
     dbt_args = malloc(sizeof(struct debug_thread_args));
-    if (dbt_args == NULL)
-    {
+    if (dbt_args == NULL) {
         /* malloc sets errno */
         close(sockfd);
         return -1;
@@ -188,8 +179,7 @@ int chitcpd_debug(int sockfd, int event_flags, debug_event_handler handler)
     dbt_args->fd = daemon_fd;
     dbt_args->handler = handler;
 
-    if ((rc = pthread_create(&tid, NULL, debug_thread, (void *) dbt_args)) != 0)
-    {
+    if ((rc = pthread_create(&tid, NULL, debug_thread, (void *) dbt_args)) != 0) {
         errno = rc;
         perror("pthread_create");
         close(sockfd);
@@ -206,8 +196,7 @@ int chitcpd_debug_save_socket_state(debug_socket_state_t *state_info)
 {
     debug_socket_state_t *old_state_info =
         (debug_socket_state_t *) pthread_getspecific(state_key);
-    if (old_state_info != NULL)
-    {
+    if (old_state_info != NULL) {
         free(old_state_info->recv);
         free(old_state_info->send);
         free(old_state_info);
@@ -250,8 +239,7 @@ static void *debug_thread(void *_args)
     list_init(&active_list);
     list_attributes_seeker(&active_list, active_list_seeker);
 
-    while (1)
-    {
+    while (1) {
         rc = chitcpd_recv_msg(daemon_fd, &event_msg);
         if (rc < 0)
             break;
@@ -264,8 +252,7 @@ static void *debug_thread(void *_args)
 
         chitcpd_msg__free_unpacked(event_msg, NULL);
 
-        if ( (!is_active && event_flag == DBG_EVT_PENDING_CONNECTION) || (is_active && first_event) )
-        {
+        if ( (!is_active && event_flag == DBG_EVT_PENDING_CONNECTION) || (is_active && first_event) ) {
             /* If we're dealing with an active socket, we need to create an
              * active_thread upon the first debug event. In the passive case,
              * we may need to create a new active_thread, depending on what
@@ -273,8 +260,7 @@ static void *debug_thread(void *_args)
 
             first_event = FALSE;
             bool_t create_active_thread = TRUE;
-            if (event_flag == DBG_EVT_PENDING_CONNECTION)
-            {
+            if (event_flag == DBG_EVT_PENDING_CONNECTION) {
                 passive = TRUE;
                 resp_inner.ret = handler(sockfd, event_flag, NULL, NULL, new_sockfd);
                 if (resp_inner.ret == DBG_RESP_STOP)
@@ -283,12 +269,10 @@ static void *debug_thread(void *_args)
                     create_active_thread = FALSE;
             }
 
-            if (create_active_thread)
-            {
+            if (create_active_thread) {
                 struct active_thread_args *new_args =
                     malloc(sizeof(struct active_thread_args));
-                if (new_args == NULL)
-                {
+                if (new_args == NULL) {
                     fprintf(stderr, "debug_thread: Fatal error: no memory available to create new active_thread\n");
                     break;
                 }
@@ -305,8 +289,7 @@ static void *debug_thread(void *_args)
                 new_args->response = -1;
 
                 rc = pthread_create(&new_args->tid, NULL, active_thread, (void *) new_args);
-                if (rc < 0)
-                {
+                if (rc < 0) {
                     fprintf(stderr, "debug_thread: Fatal error: insufficient resources to create new active_thread\n");
                     pthread_mutex_destroy(&new_args->lock);
                     pthread_cond_destroy(&new_args->cv);
@@ -318,21 +301,16 @@ static void *debug_thread(void *_args)
             }
         }
 
-        if (!is_active)
-        {
+        if (!is_active) {
             resp_inner.ret = handler(sockfd, event_flag, NULL, NULL, -1);
             if (resp_inner.ret == DBG_RESP_STOP)
                 break;
-        }
-        else if (is_active)
-        {
+        } else if (is_active) {
             /* We must pass this event on to the associated active_thread. */
             struct active_thread_args *item = (struct active_thread_args *)list_seek(&active_list, &sockfd);
-            if (item != NULL)
-            {
+            if (item != NULL) {
                 resp_inner.ret = send_and_get_from_active(item, event_flag);
-                if (resp_inner.ret == DBG_RESP_STOP)
-                {
+                if (resp_inner.ret == DBG_RESP_STOP) {
                     /* The other thread is terminating */
                     list_delete(&active_list, item);
                     pthread_join(item->tid, NULL);
@@ -345,9 +323,7 @@ static void *debug_thread(void *_args)
                     if (!passive)
                         break;
                 }
-            }
-            else
-            {
+            } else {
                 fprintf(stderr, "debug_thread: Error: received event %s for unknown socket %d\n",
                         dbg_evt_str(event_flag), sockfd);
             }
@@ -359,8 +335,7 @@ static void *debug_thread(void *_args)
     }
 
     /* Free the resources in the active_list. */
-    while (list_size(&active_list) > 0)
-    {
+    while (list_size(&active_list) > 0) {
         struct active_thread_args *item = (struct active_thread_args *) list_extract_at(&active_list, 0);
         /* Ask the corresponding thread to stop. */
         send_and_get_from_active(item, DBG_EVT_KILL);
@@ -401,37 +376,29 @@ static void *active_thread(void *_args)
     struct active_thread_args *args = (struct active_thread_args *) _args;
     int done = FALSE;
 
-    while (1)
-    {
+    while (1) {
         pthread_mutex_lock(&args->lock);
         while (args->event_flag == 0)
             pthread_cond_wait(&args->cv, &args->lock);
-        if (args->event_flag == DBG_EVT_KILL)
-        {
+        if (args->event_flag == DBG_EVT_KILL) {
             done = TRUE;
             args->response = DBG_RESP_NONE; /* any response but -1 */
-        }
-        else
-        {
+        } else {
             /* Retrieve state information to send to the handler. */
             debug_socket_state_t *state_info, *saved_state_info;
             state_info = chitcpd_get_socket_state(args->sockfd, TRUE);
-            if (state_info == NULL)
-            {
+            if (state_info == NULL) {
                 fprintf(stderr, "active_thread: could not get state_info!\nABORTING\n");
                 args->response = DBG_RESP_STOP;
-            }
-            else
-            {
+            } else {
                 saved_state_info = (debug_socket_state_t *) pthread_getspecific(state_key);
 
                 /* Call the handler. */
                 args->response = args->handler(args->sockfd, args->event_flag,
-                        state_info, saved_state_info, -1);
+                                               state_info, saved_state_info, -1);
 
                 /* Free state_info, unless the handler saved it to state_key. */
-                if (pthread_getspecific(state_key) != state_info)
-                {
+                if (pthread_getspecific(state_key) != state_info) {
                     free(state_info->send);
                     free(state_info->recv);
                     free(state_info);
@@ -445,8 +412,7 @@ static void *active_thread(void *_args)
         pthread_cond_broadcast(&args->cv);
         pthread_mutex_unlock(&args->lock);
 
-        if (done)
-        {
+        if (done) {
             /* Free the saved state. */
             chitcpd_debug_save_socket_state(NULL);
 
@@ -466,8 +432,7 @@ debug_socket_state_t *chitcpd_get_socket_state(int sockfd, bool_t include_buffer
     int daemon_socket = chitcpd_get_socket();
 
     ret = malloc(sizeof(*ret));
-    if (ret == NULL)
-    {
+    if (ret == NULL) {
         return NULL;
     }
     ret->send = NULL;
@@ -481,8 +446,7 @@ debug_socket_state_t *chitcpd_get_socket_state(int sockfd, bool_t include_buffer
 
     rc = chitcpd_send_command(daemon_socket, &req, &resp_p);
 
-    if (rc != CHITCP_OK)
-    {
+    if (rc != CHITCP_OK) {
         perror("chitcpd_get_socket_state: Error when sending command to chiTCP daemon.\n");
         free(ret);
         return NULL;
@@ -490,8 +454,7 @@ debug_socket_state_t *chitcpd_get_socket_state(int sockfd, bool_t include_buffer
 
     /* Unpack response */
     assert(resp_p->resp != NULL);
-    if (resp_p->resp->ret != CHITCP_OK)
-    {
+    if (resp_p->resp->ret != CHITCP_OK) {
         errno = resp_p->resp->error_code;
         perror("chitcpd_get_socket_state: Could not get socket state from daemon");
         free(ret);
@@ -509,8 +472,7 @@ debug_socket_state_t *chitcpd_get_socket_state(int sockfd, bool_t include_buffer
     ret->SND_WND = resp_p->resp->socket_state->snd_wnd;
 
     chitcpd_msg__free_unpacked(resp_p, NULL);
-    if (include_buffers)
-    {
+    if (include_buffers) {
         /* Send the command to get the buffer contents */
 
         ChitcpdGetSocketBufferContentsArgs gsbca = CHITCPD_GET_SOCKET_BUFFER_CONTENTS_ARGS__INIT;
@@ -522,8 +484,7 @@ debug_socket_state_t *chitcpd_get_socket_state(int sockfd, bool_t include_buffer
 
         rc = chitcpd_send_command(daemon_socket, &req, &resp_p);
 
-        if (rc != CHITCP_OK)
-        {
+        if (rc != CHITCP_OK) {
             perror("chitcpd_get_socket_state: Error when sending command to chiTCP daemon");
             free(ret);
             return NULL;
@@ -531,8 +492,7 @@ debug_socket_state_t *chitcpd_get_socket_state(int sockfd, bool_t include_buffer
 
         /* Unpack response */
         assert(resp_p->resp != NULL);
-        if (resp_p->resp->ret != CHITCP_OK)
-        {
+        if (resp_p->resp->ret != CHITCP_OK) {
             errno = resp_p->resp->error_code;
             perror("chitcpd_get_socket_state: Could not get socket buffers from daemon");
             free(ret);
@@ -543,14 +503,12 @@ debug_socket_state_t *chitcpd_get_socket_state(int sockfd, bool_t include_buffer
         ret->recv_len = resp_p->resp->socket_buffer_contents->rcv.len;
         ret->send_len = resp_p->resp->socket_buffer_contents->snd.len;
         ret->recv = malloc(ret->recv_len);
-        if (!ret->recv)
-        {
+        if (!ret->recv) {
             free(ret);
             return NULL;
         }
         ret->send = malloc(ret->send_len);
-        if (!ret->send)
-        {
+        if (!ret->send) {
             free(ret);
             return NULL;
         }
@@ -575,8 +533,8 @@ int chitcpd_wait_for_state(int sockfd, tcp_state_t tcp_state)
     if (daemon_socket < 0)
         CHITCPD_FAIL("Error when connecting to chiTCP daemon.")
 
-    /* Create request */
-    req.code = CHITCPD_MSG_CODE__WAIT_FOR_STATE;
+        /* Create request */
+        req.code = CHITCPD_MSG_CODE__WAIT_FOR_STATE;
     req.wait_for_state_args = &wfsa;
 
     wfsa.sockfd = sockfd;
