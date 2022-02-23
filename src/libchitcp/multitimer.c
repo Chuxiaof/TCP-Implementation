@@ -45,12 +45,23 @@
 #include "chitcp/multitimer.h"
 #include "chitcp/log.h"
 
+/* args for multitimer thread function */
 struct worker_args {
     multi_timer_t *mt;
 };
 
+/* function for multitimer thread */
 void *multiple_timer_machine(void *args);
 
+/**
+ * @brief helper function to compare two timespec
+ * 
+ * @param timer_x 
+ * @param timer_y 
+ * @return int -1: x < y
+ *             0 : x = y
+ *             1 : x > y
+ */
 static int timespec_cmp(single_timer_t * timer_x, single_timer_t * timer_y)
 {
     struct timespec *x= &timer_x->expire_time;
@@ -63,8 +74,13 @@ static int timespec_cmp(single_timer_t * timer_x, single_timer_t * timer_y)
     return x->tv_nsec - y->tv_nsec;
 }
 
-/* See multitimer.h */
-void timespec_add(struct timespec *expire_time, uint64_t timeout)
+/**
+ * @brief update expire time of the timer
+ * 
+ * @param expire_time: pointer to the timespec struct of the timer
+ * @param timeout: in nanoseconds
+ */
+void update_expire_time(struct timespec *expire_time, uint64_t timeout)
 {
     long secs = timeout / (long)1e9;
     long nsec = timeout % (long)1e9;
@@ -170,7 +186,7 @@ int mt_set_timer(multi_timer_t *mt, uint16_t id, uint64_t timeout, mt_callback_f
     timer->active = true;
     timer->callback = callback;
     timer->callback_args = callback_args;
-    timespec_add(&timer->expire_time, timeout);
+    update_expire_time(&timer->expire_time, timeout);
     LL_INSERT_INORDER(mt->active_timers, timer, timespec_cmp);
     pthread_cond_signal(&mt->condvar);
     pthread_mutex_unlock(&mt->lock);

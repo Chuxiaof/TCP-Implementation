@@ -118,17 +118,13 @@
 
 #define PROBE_LENGTH 1
 
-/* arguments for retransmission timer callback function */
-typedef struct rtx_args {
+/* arguments for timeout callback function 
+   (retransmission timeout / persist timeout) */
+typedef struct callback_args {
     serverinfo_t *si;
     chisocketentry_t *entry;
-} rtx_args_t;
-
-/* arguments for persist timer callback function */
-typedef struct pst_args {
-    serverinfo_t *si;
-    chisocketentry_t *entry;
-} pst_args_t;
+    tcp_timer_type_t type;
+} callback_args_t;
 
 /**
  * @brief free both the raw content and tcp_packet_t itself
@@ -199,8 +195,6 @@ static int send_data(serverinfo_t *si, chisocketentry_t *entry);
  */
 static void send_fin(serverinfo_t *si, chisocketentry_t *entry);
 
-
-
 /**
  * @brief add the packet to the retransmission queue
  *
@@ -236,20 +230,13 @@ static void retransmission_packet_free(retransmission_packet_t *re_packet);
 static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, tcp_seq ack_seq);
 
 /**
- * @brief activate the retransmission timer
+ * @brief activate the timer
  *
  * @param si struct that stores the server global infomation
  * @param entry particular socket entry for this tcp connection
+ * @param timer_id id of the timer you want to set: retransmission / persist
  */
-static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry);
-
-/**
- * @brief activate the persist timer
- *
- * @param si struct that stores the server global infomation
- * @param entry particular socket entry for this tcp connection
- */
-static void set_persist_timer(serverinfo_t *si, chisocketentry_t *entry);
+static void set_timer(serverinfo_t *si, chisocketentry_t *entry, int timer_id);
 
 /**
  * @brief resend all the packets in retransmission queue
@@ -268,22 +255,13 @@ static void resend_packets(serverinfo_t *si, chisocketentry_t *entry);
 static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry);
 
 /**
- * @brief callback function when retransmission timer times out
+ * @brief callback function when timer times out
  *
  * @param mt pointer to multitimer
  * @param st pointer to particular single timer
- * @param rtx_args arguments for this callback function
+ * @param c_args arguments for this callback function
  */
-void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args);
-
-/**
- * @brief callback function when persist timer times out
- *
- * @param mt pointer to multitimer
- * @param st pointer to particular single timer
- * @param pst_args arguments for this callback function
- */
-void pst_callback_func(multi_timer_t *mt, single_timer_t *st, void *pst_args);
+void callback_func(multi_timer_t *mt, single_timer_t *st, void *c_args);
 
 /**
  * @brief creat a out-of-order packet according to the given ordinary packet
@@ -304,6 +282,8 @@ static out_of_order_packet_t *out_of_order_packet_create(tcp_packet_t *packet);
  */
 static int out_of_order_packet_cmp(out_of_order_packet_t *x, out_of_order_packet_t *y);
 
+
+
 void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
@@ -318,7 +298,7 @@ void tcp_data_init(serverinfo_t *si, chisocketentry_t *entry)
     tcp_data->retransmission_queue = NULL;
     tcp_data->is_first_measurement = true;
     tcp_data->out_of_order_packets_list = NULL;
-    /* set initial RTO to 200 milliseconds*/
+    /* set initial RTO to 1 second */
     tcp_data->RTO = RTO_INIT;
 }
 
@@ -358,7 +338,7 @@ int chitcpd_tcp_state_handle_CLOSED(serverinfo_t *si, chisocketentry_t *entry, t
 
         append_retransmission_queue(entry, packet);
         chitcpd_send_tcp_packet(si, entry, packet);
-        set_retransmission_timer(si, entry);
+        set_timer(si, entry, RTX_TIMER_ID);
         chitcpd_update_tcp_state(si, entry, SYN_SENT);
     } else if (event == CLEANUP) {
         /* Any additional cleanup goes here */
@@ -383,7 +363,6 @@ int chitcpd_tcp_state_handle_SYN_RCVD(serverinfo_t *si, chisocketentry_t *entry,
     if (event == PACKET_ARRIVAL) {
         chitcpd_tcp_handle_packet(si, entry);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else
         chilog(WARNING, "In SYN_RCVD state, received unexpected event.");
@@ -396,7 +375,6 @@ int chitcpd_tcp_state_handle_SYN_SENT(serverinfo_t *si, chisocketentry_t *entry,
     if (event == PACKET_ARRIVAL) {
         chitcpd_tcp_handle_packet(si, entry);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else
         chilog(WARNING, "In SYN_SENT state, received unexpected event.");
@@ -419,10 +397,8 @@ int chitcpd_tcp_state_handle_ESTABLISHED(serverinfo_t *si, chisocketentry_t *ent
         tcp_data->closing = true;
         send_fin(si, entry);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else if (event == TIMEOUT_PST) {
-        /* Your code goes here */
         pst_timeout_handler(si, entry);
     } else
         chilog(WARNING, "In ESTABLISHED state, received unexpected event (%i).", event);
@@ -438,10 +414,8 @@ int chitcpd_tcp_state_handle_FIN_WAIT_1(serverinfo_t *si, chisocketentry_t *entr
         tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
         tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else if (event == TIMEOUT_PST) {
-        /* Your code goes here */
         pst_timeout_handler(si, entry);
     } else
         chilog(WARNING, "In FIN_WAIT_1 state, received unexpected event (%i).", event);
@@ -457,7 +431,6 @@ int chitcpd_tcp_state_handle_FIN_WAIT_2(serverinfo_t *si, chisocketentry_t *entr
         tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
         tcp_data->RCV_WND = circular_buffer_available(&tcp_data->recv);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else
         chilog(WARNING, "In FIN_WAIT_2 state, received unexpected event (%i).", event);
@@ -474,10 +447,8 @@ int chitcpd_tcp_state_handle_CLOSE_WAIT(serverinfo_t *si, chisocketentry_t *entr
     } else if (event == PACKET_ARRIVAL) {
         chitcpd_tcp_handle_packet(si, entry);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else if (event == TIMEOUT_PST) {
-        /* Your code goes here */
         pst_timeout_handler(si, entry);
     } else
         chilog(WARNING, "In CLOSE_WAIT state, received unexpected event (%i).", event);
@@ -490,10 +461,8 @@ int chitcpd_tcp_state_handle_CLOSING(serverinfo_t *si, chisocketentry_t *entry, 
     if (event == PACKET_ARRIVAL) {
         chitcpd_tcp_handle_packet(si, entry);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else if (event == TIMEOUT_PST) {
-        /* Your code goes here */
         pst_timeout_handler(si, entry);
     } else
         chilog(WARNING, "In CLOSING state, received unexpected event (%i).", event);
@@ -513,10 +482,8 @@ int chitcpd_tcp_state_handle_LAST_ACK(serverinfo_t *si, chisocketentry_t *entry,
     if (event == PACKET_ARRIVAL) {
         chitcpd_tcp_handle_packet(si, entry);
     } else if (event == TIMEOUT_RTX) {
-        /* Your code goes here */
         resend_packets(si, entry);
     } else if (event == TIMEOUT_PST) {
-        /* Your code goes here */
         pst_timeout_handler(si, entry);
     } else
         chilog(WARNING, "In LAST_ACK state, received unexpected event (%i).", event);
@@ -544,6 +511,10 @@ static void retransmission_packet_free(retransmission_packet_t *re_packet)
     free(re_packet);
 }
 
+/*                                                                  */
+/* following is functions dealing with the logic of packets arrival */
+/*                                                                  */
+
 /* see function declaration */
 static int listen_handler(serverinfo_t *si, chisocketentry_t *entry,
                           tcp_packet_t *packet, tcp_packet_t *return_packet)
@@ -567,7 +538,7 @@ static int listen_handler(serverinfo_t *si, chisocketentry_t *entry,
         return_header->ack = 1;
         return_header->ack_seq = chitcp_htonl(tcp_data->RCV_NXT);
         return_header->syn = 1;
-        /* update propertiesn */
+        /* update properties */
         tcp_data->SND_NXT = tcp_data->ISS + 1;
         tcp_data->SND_UNA = tcp_data->ISS;
         chitcpd_update_tcp_state(si, entry, SYN_RCVD);
@@ -690,7 +661,8 @@ static int other_states_handler(serverinfo_t *si, chisocketentry_t *entry,
     /* used to denote whether we need to send a return packet */
     bool is_reply = false;
     /* for out of order delivery,
-       used to denote whether we need to keep current packet */
+       used to denote whether we need to keep current packet 
+       instead of freeing it */
     bool is_keep = false;
 
     /* fourth process the segment text */
@@ -781,11 +753,12 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
     packet = tcp_data->pending_packets->packet;
     chitcp_packet_list_pop_head(&tcp_data->pending_packets);
     pthread_mutex_unlock(&tcp_data->lock_pending_packets);
+
     /* check and set/cancel persist timer if necessary */
     if (tcp_data->SND_UNA <= SEG_ACK(packet) && SEG_ACK(packet) <= tcp_data->SND_NXT) {
         if (SEG_WND(packet) == 0) {
             /* if the timer is active, the function will return immediately */
-            set_persist_timer(si, entry);
+            set_timer(si, entry, PST_TIMER_ID);
         } else {
             /* if the timer is inactive, the function will return immediately */
             mt_cancel_timer(&tcp_data->mt, PST_TIMER_ID);
@@ -805,6 +778,9 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         rv = other_states_handler(si, entry, packet, return_packet);
     }
 
+    /* SEGMENT_DROP: ignore this segment
+       SEGMENT_FINISH: reply to this segment, and free this segment
+       SEGMENT_KEEP: reply to this segment, and keep this segment (for out of order delivery) */
     if (rv != SEGMENT_DROP) {
         /* in this case need to send a reply packet */
         tcphdr_t *return_header = TCP_PACKET_HEADER(return_packet);
@@ -813,10 +789,12 @@ static void chitcpd_tcp_handle_packet(serverinfo_t *si, chisocketentry_t *entry)
         chitcpd_send_tcp_packet(si, entry, return_packet);
         if (return_header->syn) {
             append_retransmission_queue(entry, return_packet);
-            set_retransmission_timer(si, entry);
+            set_timer(si, entry, RTX_TIMER_ID);
         } else {
             deep_free_packet(return_packet);
         }
+    } else {
+        deep_free_packet(return_packet);
     }
 
     /* send remaining data in the buffer */
@@ -863,7 +841,7 @@ static int send_data(serverinfo_t *si, chisocketentry_t *entry)
 
         append_retransmission_queue(entry, packet);
         chitcpd_send_tcp_packet(si, entry, packet);
-        set_retransmission_timer(si, entry);
+        set_timer(si, entry, RTX_TIMER_ID);
 
         tcp_data->SND_NXT += read_bytes;
         real_wnd -= read_bytes;
@@ -889,7 +867,7 @@ static void send_fin(serverinfo_t *si, chisocketentry_t *entry)
 
         append_retransmission_queue(entry, fin_packet);
         chitcpd_send_tcp_packet(si, entry, fin_packet);
-        set_retransmission_timer(si, entry);
+        set_timer(si, entry, RTX_TIMER_ID);
 
         if (entry->tcp_state == CLOSE_WAIT)
             chitcpd_update_tcp_state(si, entry, LAST_ACK);
@@ -897,6 +875,10 @@ static void send_fin(serverinfo_t *si, chisocketentry_t *entry)
         tcp_data->closing = false;
     }
 }
+
+/*                                                    */
+/* following is functions dealing with retransmission */
+/*                                                    */
 
 /* see function declaration */
 static retransmission_packet_t *retransmission_packet_create(tcp_packet_t *packet, struct timespec sent_time)
@@ -934,6 +916,7 @@ static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, 
     LL_FOREACH_SAFE(tcp_data->retransmission_queue, elt, tmp) {
         int payload_len = TCP_PAYLOAD_LEN(elt->packet);
         if (SEG_SEQ(elt->packet) + payload_len <= ack_seq) {
+            /* cancel retransmission timer */
             mt_cancel_timer(&tcp_data->mt, RTX_TIMER_ID);
             LL_DELETE(tcp_data->retransmission_queue, elt);
             /* free related bytes in send buffer */
@@ -971,45 +954,29 @@ static void sweep_away_acked_packets(serverinfo_t *si, chisocketentry_t *entry, 
         tcp_data->RTO = tcp_data->SRTT + MAX(G, K * tcp_data->RTTVAR);
     }
 
+    /* set retransmission timer if needed */
     if (tcp_data->SND_UNA < tcp_data->SND_NXT)
-        set_retransmission_timer(si, entry);
+        set_timer(si, entry, RTX_TIMER_ID);
 }
 
 /* see function declaration */
-static void set_retransmission_timer(serverinfo_t *si, chisocketentry_t *entry)
+static void set_timer(serverinfo_t *si, chisocketentry_t *entry, int timer_id)
 {
     tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-    rtx_args_t *rtx_args = calloc(1, sizeof(rtx_args_t));
-    rtx_args->si = si;
-    rtx_args->entry = entry;
+    callback_args_t *args = calloc(1, sizeof(callback_args_t));
+    args->si = si;
+    args->entry = entry;
+    args->type = timer_id == RTX_TIMER_ID ? RETRANSMISSION : PERSIST;
     /* this function will return if the timer is already active */
-    if (mt_set_timer(&tcp_data->mt, RTX_TIMER_ID, tcp_data->RTO, rtx_callback_func, rtx_args) == CHITCP_EINVAL)
-        free(rtx_args);
+    if (mt_set_timer(&tcp_data->mt, timer_id, tcp_data->RTO, callback_func, args) == CHITCP_EINVAL)
+        free(args);
 }
 
 /* see function declaration */
-static void set_persist_timer(serverinfo_t *si, chisocketentry_t *entry)
+void callback_func(multi_timer_t *mt, single_timer_t *st, void *c_args)
 {
-    tcp_data_t *tcp_data = &entry->socket_state.active.tcp_data;
-    pst_args_t *pst_args = calloc(1, sizeof(pst_args_t));
-    pst_args->si = si;
-    pst_args->entry = entry;
-    if (mt_set_timer(&tcp_data->mt, PST_TIMER_ID, tcp_data->RTO, pst_callback_func, pst_args) == CHITCP_EINVAL)
-        free(pst_args);
-}
-
-/* see function declaration */
-void rtx_callback_func(multi_timer_t *mt, single_timer_t *st, void *rtx_args)
-{
-    rtx_args_t *args = (rtx_args_t *)rtx_args;
-    chitcpd_timeout(args->si, args->entry, RETRANSMISSION);
-}
-
-/* see function declaration */
-void pst_callback_func(multi_timer_t *mt, single_timer_t *st, void *pst_args)
-{
-    pst_args_t *args = (pst_args_t *)pst_args;
-    chitcpd_timeout(args->si, args->entry, PERSIST);
+    callback_args_t *args = (callback_args_t *)c_args;
+    chitcpd_timeout(args->si, args->entry, args->type);
 }
 
 /* see function declaration */
@@ -1028,8 +995,12 @@ static void resend_packets(serverinfo_t *si, chisocketentry_t *entry)
     }
     /* RTO backoff */
     tcp_data->RTO = MIN(tcp_data->RTO * 2, MAX_RTO);
-    set_retransmission_timer(si, entry);
+    set_timer(si, entry, RTX_TIMER_ID);
 }
+
+/*                                                   */
+/* following is functions dealing with persist timer */
+/*                                                   */
 
 /* see function declaration */
 static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
@@ -1055,8 +1026,12 @@ static void pst_timeout_handler(serverinfo_t *si, chisocketentry_t *entry)
             tcp_data->SND_NXT = tcp_data->SND_UNA + PROBE_LENGTH;
         }
     }
-    set_persist_timer(si, entry);
+    set_timer(si, entry, PST_TIMER_ID);
 }
+
+/*                                                           */
+/* following is functions dealing with out of order dilivery */
+/*                                                           */
 
 /* see function declaration */
 static out_of_order_packet_t *out_of_order_packet_create(tcp_packet_t *packet)

@@ -113,6 +113,7 @@ static inline char *tcp_event_str(tcp_event_type_t evt)
     return tcp_event_type_names[evt - 1];
 }
 
+/* data structure for retransmission queue */
 typedef struct retransmission_packet
 {
     tcp_packet_t *packet;
@@ -121,6 +122,7 @@ typedef struct retransmission_packet
     struct retransmission_packet *next;
 } retransmission_packet_t;
 
+/* data structure for out of order packet queue */
 typedef struct out_of_order_packet
 {
     tcp_packet_t *packet;

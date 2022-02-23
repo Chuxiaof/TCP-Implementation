@@ -256,6 +256,4 @@ int mt_chilog(loglevel_t level, multi_timer_t *mt, bool active_only);
  */
 int timespec_subtract(struct timespec *result, struct timespec *x, struct timespec *y);
 
-void timespec_add(struct timespec *expire_time, uint64_t timeout);
-
 #endif /* MULTITIMER_H_ */
